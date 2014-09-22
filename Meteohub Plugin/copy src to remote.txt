@@ -1,2 +1,4 @@
 ## copy scr to remote meteohub
 scp -P 8885 -p -r /data/sd root@192.168.2.20:/data/sd
+## pull src from remote meteohub
+scp -P 8885 -p -r root@192.168.2.20:/data/sd /data/sd
