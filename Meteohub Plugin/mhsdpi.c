@@ -7,12 +7,13 @@ Trimble Ultrasonic Snow Depth Guage - Ver 1.0
 
 Written:	7-May-2014 by Fred Trimble ftt@smtcpa.com
 
-Modified:
+Modified:   22-Sep-2014 by Fred Trimble ftt@smtcpa.com
+		    Ver 1.0 Correct sensor number incerment when no snow depth data is found
 
 */
 //#define DEBUG
 #include "mhsdpi.h"
-#define VERSION "a.01"
+#define VERSION "1.0"
 
 /*
 main program
