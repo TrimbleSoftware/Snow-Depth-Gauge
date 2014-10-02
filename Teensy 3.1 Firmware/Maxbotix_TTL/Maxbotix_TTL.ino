@@ -10,6 +10,7 @@
            Version 1.1 25-June-2014 Added watchdog timer per http://forum.pjrc.com/threads/25370-Teensy-3-0-Watchdog-Timer
            Version 1.2 6-Aug-2014   Fixed bug with errors not being retunred on Range command.
            Version 1.3 17-Sep-2014  Added lowpower sleep
+           Version 1.4 1-Oct-2014   Cleaned up some code having to do with XBee reset
 
  Maxbotix HRXL-Maxsonar MB7354 Teensy 3.1 TTL interface
  
@@ -57,7 +58,7 @@ Maxbotix Pins                           |
 Xbee Pin 5 RESET +-----------------+
  
  */
-#define SWVER "1.3"
+#define SWVER "1.4.1"
 #define HWVER "1D"
 #include <math.h>
 #include <EEPROM.h>
@@ -348,16 +349,16 @@ float getVolts ()
   return (vRef / adcSteps) * (vIn / vOut) * adcValue;
 }
 
-void ResetXbee(int restPin)
+void ResetXbee(int resetPin)
 {
-  digitalWrite(restPin, HIGH);
+  digitalWrite(resetPin, HIGH);
   
 #ifdef DEBUG  
   delay(60000);
 #else
   delay(250); // have to hold Xbee pin 5 low for atleast 200ms
 #endif
-  digitalWrite(restPin, LOW);  
+  digitalWrite(resetPin, LOW);  
 }
 
 void PrintAbout(HardwareSerial2_LP port)
@@ -368,7 +369,11 @@ void PrintAbout(HardwareSerial2_LP port)
   strcat(buf, HWVER);
   strcat(buf, "-");
   strcat(buf, SWVER);
+  delay(50);
   port.println(buf);
+  port.flush();
+  port.clear();
+  delay(50);
 }
 
 void KickDog()
@@ -398,15 +403,17 @@ void setup()
   pinMode(XBEERESETPIN, OUTPUT);
   pinMode(LED_BUILTIN, OUTPUT);
   digitalWrite(MAXBOTIXPOWERPIN, LOW);
+  digitalWrite(XBEERESETPIN, LOW);
 
 #ifdef DEBUG
   delay(20000);
   printResetType();
 #else
   wdTimer.begin(KickDog, 500000); // kick the dog every 500msec
-#endif  
+#endif
+  Uart2.flush();
+  Uart2.clear();
   PrintAbout(Uart2);
-  ResetXbee(XBEERESETPIN);
   blinkLED_BuiltIn(BLINK_LONG, LED_BRIGHT);
 }
 
@@ -449,19 +456,25 @@ void processCommand(void)
         
       case CMD_RESTART: // restart CPU
       {
+#ifdef DEBUG
         Uart2.clear();
         Uart2.println("CPU Resetting...");
         Uart2.flush();
+#endif         
         blinkLED_BuiltIn(BLINK_LONG, LED_BRIGHT);
         delay(50);
         blinkLED_BuiltIn(BLINK_LONG, LED_BRIGHT);
         delay(50);
         blinkLED_BuiltIn(BLINK_LONG, LED_BRIGHT);
         delay(50);
+#ifdef DEBUG        
         Uart2.clear();
         Uart2.println("XBee Resetting...");
         Uart2.flush();
-        //ResetXbee(XBEERESETPIN); // Reset XBee
+        delay(50);
+#endif        
+        ResetXbee(XBEERESETPIN); // Reset XBee
+        delay(50);
         CPU_RESTART
         break;
       }

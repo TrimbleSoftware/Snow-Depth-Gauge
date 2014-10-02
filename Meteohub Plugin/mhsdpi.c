@@ -13,7 +13,7 @@ Modified:   22-Sep-2014 by Fred Trimble ftt@smtcpa.com
 */
 //#define DEBUG
 #include "mhsdpi.h"
-#define VERSION "1.0"
+#define VERSION "1.0a"
 
 /*
 main program
@@ -140,10 +140,11 @@ int main (int argc, char *argv[])
 			sprintf(message_buffer, "Remote restart of sensor succeded");
 		else
 			sprintf(message_buffer, "Remote restart of sensor failed");
-		
+			
 		if(config.write_log)
 			writelog(config.log_file_name, argv[0], message_buffer);
 	}
+	
 	
 	if(config.set_manual_datum && !config.set_auto_datum)
 	{
@@ -249,6 +250,7 @@ void print_firmware_version(FILE *stream, char *logfilename, char *myname)
 		buf[i] = malloc(80 * sizeof(char));
 	fflush(stream);
 	fputc(CMD_GET_ABOUT, stream);
+	sleep(10); // inital delay to let Xbee catch-up
 	for(i = 0; i < 7; i++)
 	{
 		fgets(buf[i], malloc_usable_size(buf[i]), stream);
@@ -372,27 +374,32 @@ int get_battery_voltage(FILE *stream)
 boolean restart_sensor(FILE *stream)
 {
 	boolean retvalue = false;
-	char *buf[2];
-	int i = 0;
-	for(i = 0; i < 2; i++)
-		buf[i] = malloc(80 * sizeof(char));
+//	char *buf[1];
+//	int i = 0;
+//	for(i = 0; i < 1; i++)
+//		buf[i] = malloc(80 * sizeof(char));
 		
 	fflush(stream);
 	fputc(CMD_RESTART, stream);
-	sleep(5);
-	for(i = 0; i < 2; i++)
-	{
-		fgets(buf[i], malloc_usable_size(buf[i]), stream);
-#ifdef DEBUG		
-		int j = 0;
-		for (j = 0; j < strlen(buf[i]); j++)
-			fprintf(stderr, "%c - 0x%x\n", buf[i][j],  buf[i][j]);;
-#endif			
-		if(buf[i][0] == 'T') // got boot message?
-			retvalue = true;
-		free(buf[i]);
-	}
-	
+	fflush(stream);
+	sleep(10); // delay to allow XBee daly + Teensy restart
+	retvalue = true;
+//	for(i = 0; i < 1; i++)
+//	{
+//		fgets(buf[i], malloc_usable_size(buf[i]), stream);
+//#ifdef DEBUG		
+//		int j = 0;
+//		for (j = 0; j < strlen(buf[i]); j++)
+//			fprintf(stderr, "%c - 0x%x\n", buf[i][j],  buf[i][j]);;
+//#endif			
+//		if(buf[i][0] == 'T') // got about message?
+//		{
+//			retvalue = true;
+//			break;
+//		}
+//		free(buf[i]);
+//	}
+	fflush(stream);
 	return retvalue;
 }
 
