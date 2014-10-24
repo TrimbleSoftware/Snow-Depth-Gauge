@@ -3,17 +3,20 @@
 mhsdpi.c
 
 meteohub "plug-in" weather station to read and log data from a 
-Trimble Ultrasonic Snow Depth Guage - Ver 1.0
+Trimble Ultrasonic Snow Depth Guage - Ver 1.1
 
 Written:	7-May-2014 by Fred Trimble ftt@smtcpa.com
 
 Modified:   22-Sep-2014 by Fred Trimble ftt@smtcpa.com
 		    Ver 1.0 Correct sensor number incerment when no snow depth data is found
 
+			22-Oct-2014 by Fred Trimble ftt@smtcpa.com
+			Ver 1.1 Added both 3 standard deviation filtering and simple moving average smoothing to sensor readings
+
 */
 //#define DEBUG
 #include "mhsdpi.h"
-#define VERSION "1.0a"
+#define VERSION "1.1"
 
 /*
 main program
@@ -22,11 +25,15 @@ int main (int argc, char *argv[])
 {
 	char log_file_name[FILENAME_MAX] = "";
 	char config_file_name[FILENAME_MAX] = "";
+	char readings_file_name[FILENAME_MAX] = "";
 	strcpy(config_file_name, argv[0]);
 	strcat(config_file_name, ".conf");
 	static const char *optString = "BCd:h?Ls:t:";
 	int snowdepth = -1;
+	int snowdepth_sma = 0; // filtered Simple Moving Average snow depth
 	int batteryVolts = -1;
+	int readings[MAXREADINGS];
+	int new_average = 0;
 	uint32_t seconds_since_midnight = 0;
 
 	struct config_t config;
@@ -39,6 +46,9 @@ int main (int argc, char *argv[])
 	strcpy(log_file_name, argv[0]);
 	strcat(log_file_name,".log");
 	strcpy(config.log_file_name, log_file_name);
+	strcpy(readings_file_name, argv[0]);
+	strcat(readings_file_name, ".dat");
+	strcpy(config.readings_file_name, readings_file_name);
 
 	config.sleep_seconds = 3660; // 1 hr is default sleep time;
 	config.set_auto_datum = false;
@@ -48,6 +58,10 @@ int main (int argc, char *argv[])
 	FILE *ttyfile;
 
 	uint32_t mh_data_id = 0;
+	int i = 0;
+	for(i = 0; i < MAXREADINGS; i++) // initilize readings history array elements to zero
+		readings[i] = 0;
+		
 	const char mh_data_fmt[] = "data%d %d\n";
 
 	char *message_buffer;
@@ -77,7 +91,7 @@ int main (int argc, char *argv[])
 			break;
 		case 'D':
 			config.set_auto_datum = true;
-			break;			
+			break;
 		case 'h':
 		case '?':
 			display_usage(argv[0]);
@@ -110,6 +124,11 @@ int main (int argc, char *argv[])
 		return -1;
 	}
 
+	if(read_array(readings, MAXREADINGS, readings_file_name) >= 0)
+		for(i = 1; i < MAXREADINGS; i++) // initilize the sma values array with something
+			if (readings[i] == 0)
+				readings[i] = readings[i - 1];
+	
 	ttyfile = fopen(config.device, "ab+");
 
 	if (!isatty(fileno(ttyfile)))
@@ -137,7 +156,7 @@ int main (int argc, char *argv[])
 	if(config.restart_remote_sensor)
 	{
 		if(restart_sensor(ttyfile))
-			sprintf(message_buffer, "Remote restart of sensor succeded");
+			sprintf(message_buffer, "Issued remote restart of sensor command");
 		else
 			sprintf(message_buffer, "Remote restart of sensor failed");
 			
@@ -188,14 +207,22 @@ int main (int argc, char *argv[])
 	{
 		mh_data_id = 0;
 
-		snowdepth = get_depth_value(ttyfile);
-		batteryVolts = get_battery_voltage(ttyfile);
+		snowdepth = get_depth_value(ttyfile); // read sensor value for snow depth via xBee explorer on USB
+		batteryVolts = get_battery_voltage(ttyfile); // read sensor value for batter volts via xBee explorer on USB
 		
 		if(snowdepth >= 0)
 		{
-			fprintf(stdout, mh_data_fmt, mh_data_id++, snowdepth * 100);
-			sprintf(message_buffer,"Snow depth reading: %d", snowdepth);
-			writelog(config.log_file_name, argv[0], message_buffer);
+			new_average = (int)(average(readings, MAXREADINGS) + 0.5);
+			if(abs(snowdepth) >= ((3 * standard_deviation(readings, MAXREADINGS)) + abs(new_average))) // if the sample is more than 3 standard deviations away from the average
+				snowdepth = new_average; // use the prior readings average
+
+			snowdepth_sma = (int)(moving_average(readings, MAXREADINGS, snowdepth) + 0.5); // smooth the sensor readings
+			
+			write_array(readings, MAXREADINGS, readings_file_name);
+			
+			fprintf(stdout, mh_data_fmt, mh_data_id++, snowdepth_sma * 100);
+			//sprintf(message_buffer,"Snow depth reading: %d", snowdepth);
+			//writelog(config.log_file_name, argv[0], message_buffer);
 		}
 		else
 		{
@@ -241,6 +268,83 @@ int main (int argc, char *argv[])
 function bodies
 */
 
+// write array of int to a file 
+int write_array(const int *values, int n, char *filename)
+{
+	FILE *fp;
+	int retval = 0;
+	fp = fopen(filename, "wb");
+	if(!fp)
+		retval = -1;
+	else
+	{
+		retval = fwrite(values, sizeof(values[0]), n, fp);
+		fflush(fp);
+		fclose(fp);
+	}
+	return retval;
+}
+
+// read array of ints from a file
+int read_array(int *values, int n, char *filename)
+{
+	FILE *fp;
+	int retval = 0;
+	fp = fopen(filename, "rb");
+	if(!fp)
+		retval = -1;
+	else
+	{
+		retval = fread(values, sizeof(values[0]), n, fp);
+		fclose(fp);
+	}
+	return retval;
+}
+
+// calculate the moving average of an array of n integer values with the addition of new_value
+// used to smooth snow depth readings
+float moving_average(int *values, int n, int new_value)
+{
+	int i = 0;;
+	int sum = 0;
+	for(i = 1; i < n; i++) // move old values over 1 slot
+	{
+		values[i - 1] = values[i];
+	}
+	values[n - 1] = new_value; // place new value into last slot
+	for(i = 0; i < n; i++) // sum of old values & new value
+	{
+		sum += values[i];
+	}
+	return(sum / n); // average of old values & new value
+}
+
+float average(const int *values, int n)
+{
+	int sum = 0;
+	int i = 0;
+	for(i = 0; i < n; i++)
+		sum += values[i];
+		
+	return(sum / n);
+}
+// calculate standard deviation of an array of n integar values
+// used to filter out outlyer readings from snow depth sensor
+float standard_deviation(const int *values, int n)
+{
+	int i = 0;
+	float sum = 0;
+	float average;
+
+	for(i = 0; i < n; i++)
+		sum += values[i];
+	average = sum / n;
+	sum = 0;
+	for(i = 0; i < n; i++)
+		sum += (values[i] - average) * (values[i] - average);
+
+	return sqrt(sum / n);
+}
 // read Snow Depth Sensor firmware version, 7 lines
 void print_firmware_version(FILE *stream, char *logfilename, char *myname)
 {
@@ -250,7 +354,7 @@ void print_firmware_version(FILE *stream, char *logfilename, char *myname)
 		buf[i] = malloc(80 * sizeof(char));
 	fflush(stream);
 	fputc(CMD_GET_ABOUT, stream);
-	sleep(10); // inital delay to let Xbee catch-up
+	sleep(10); // inital delay to let XBee catch-up
 	for(i = 0; i < 7; i++)
 	{
 		fgets(buf[i], malloc_usable_size(buf[i]), stream);

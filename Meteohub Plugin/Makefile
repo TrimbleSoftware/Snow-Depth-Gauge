@@ -31,7 +31,7 @@ ifeq ($(UNAME),armv5tel)
 	LD	= gcc
 	# c and linker flags
 	CFLAGS  = -Wall -O2 -U DEBUG
-	LDFLAGS = -s 
+	LDFLAGS = -s -lm
 endif
 
 all:	mhsdpi

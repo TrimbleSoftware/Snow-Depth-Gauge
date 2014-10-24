@@ -82,7 +82,13 @@ int get_configuration(struct config_t *config, char *path)
 			strcpy(config->log_file_name,val);
 			continue;
 		}
-
+		
+		if ((strcmp(token,"READINGS_FILE_NAME")==0) && (strlen(val) != 0))
+		{
+			strcpy(config->log_file_name,val);
+			continue;
+		}
+		
 		if ((strcmp(token,"SLEEP_SECONDS")==0) && (strlen(val) != 0))
 		{
 			config->sleep_seconds = (uint16_t)atoi(val);
