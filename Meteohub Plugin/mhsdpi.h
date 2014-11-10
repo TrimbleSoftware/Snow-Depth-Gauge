@@ -70,6 +70,7 @@ struct config_t
 	uint16_t manual_datum;
 	boolean  set_manual_datum;
 	uint16_t sleep_seconds;
+	uint16_t stdev_filter;
 };
 
 /*

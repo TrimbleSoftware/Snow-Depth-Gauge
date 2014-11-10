@@ -12,11 +12,12 @@ Modified:   22-Sep-2014 by Fred Trimble ftt@smtcpa.com
 
 			22-Oct-2014 by Fred Trimble ftt@smtcpa.com
 			Ver 1.1 Added both 3 standard deviation filtering and simple moving average smoothing to sensor readings
-
+			10-Nov-2014 by Fred Trimble ftt@smtcpa.com
+			Ver 1.2 Changed to read standard deviation range filtering value from .config file
 */
 //#define DEBUG
 #include "mhsdpi.h"
-#define VERSION "1.1"
+#define VERSION "1.2"
 
 /*
 main program
@@ -54,7 +55,8 @@ int main (int argc, char *argv[])
 	config.set_auto_datum = false;
 	config.manual_datum = 5000;  // 5000 mm is default mounting datum height of sensor
 	config.set_manual_datum = false;
-
+	config.stdev_filter = 6;
+	
 	FILE *ttyfile;
 
 	uint32_t mh_data_id = 0;
@@ -208,13 +210,17 @@ int main (int argc, char *argv[])
 		mh_data_id = 0;
 
 		snowdepth = get_depth_value(ttyfile); // read sensor value for snow depth via xBee explorer on USB
-		batteryVolts = get_battery_voltage(ttyfile); // read sensor value for batter volts via xBee explorer on USB
+		batteryVolts = get_battery_voltage(ttyfile); // read sensor value for battery volts via xBee explorer on USB
 		
 		if(snowdepth >= 0)
 		{
 			new_average = (int)(average(readings, MAXREADINGS) + 0.5);
-			if(abs(snowdepth) >= ((3 * standard_deviation(readings, MAXREADINGS)) + abs(new_average))) // if the sample is more than 3 standard deviations away from the average
+			if(abs(snowdepth) >= ((config.stdev_filter * standard_deviation(readings, MAXREADINGS)) + abs(new_average))) // if the sample is more than 6 standard deviations away from the average
+			{
+				sprintf(message_buffer,"Snow depth: %d reading out of range per filtering rules. Using prior average: %d", snowdepth, new_average);
+				writelog(config.log_file_name, argv[0], message_buffer);
 				snowdepth = new_average; // use the prior readings average
+			}
 
 			snowdepth_sma = (int)(moving_average(readings, MAXREADINGS, snowdepth) + 0.5); // smooth the sensor readings
 			
@@ -255,6 +261,7 @@ int main (int argc, char *argv[])
 				return 2;
 			}
 		}
+		read_array(readings, MAXREADINGS, readings_file_name); 
 	}
 	while(!feof(ttyfile));
 
@@ -553,11 +560,11 @@ int set_tty_port(FILE *ttyfile, char *device, char* myname, char *log_file_name,
 	}
 	else
 	{
-		if(writetolog)
-		{
-			sprintf(message_buffer, "Set serial port on device %s to 38400 Baud", device);
-			writelog(log_file_name, myname, message_buffer);
-		}
+//		if(writetolog)
+//		{
+//			sprintf(message_buffer, "Set serial port on device %s to 38400 Baud", device);
+//			writelog(log_file_name, myname, message_buffer);
+//		}
 		return 0;
 	}
 }

@@ -94,6 +94,11 @@ int get_configuration(struct config_t *config, char *path)
 			config->sleep_seconds = (uint16_t)atoi(val);
 			continue;
 		}
+		if ((strcmp(token,"STDEV_FILTER")==0) && (strlen(val) != 0))
+		{
+			config->stdev_filter = (uint16_t)atoi(val);
+			continue;
+		}
 	}
 
 	return (true);
