@@ -261,7 +261,7 @@ int main (int argc, char *argv[])
 				return 2;
 			}
 		}
-		read_array(readings, MAXREADINGS, readings_file_name); 
+		//read_array(readings, MAXREADINGS, readings_file_name); 
 	}
 	while(!feof(ttyfile));
 
