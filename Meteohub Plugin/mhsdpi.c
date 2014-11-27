@@ -3,7 +3,7 @@
 mhsdpi.c
 
 meteohub "plug-in" weather station to read and log data from a 
-Trimble Ultrasonic Snow Depth Guage - Ver 1.1
+Trimble Ultrasonic Snow Depth Guage - Ver 1.3
 
 Written:	7-May-2014 by Fred Trimble ftt@smtcpa.com
 
@@ -14,10 +14,12 @@ Modified:   22-Sep-2014 by Fred Trimble ftt@smtcpa.com
 			Ver 1.1 Added both 3 standard deviation filtering and simple moving average smoothing to sensor readings
 			10-Nov-2014 by Fred Trimble ftt@smtcpa.com
 			Ver 1.2 Changed to read standard deviation range filtering value from .config file
+			Ver 1.3 Changed to read sma array values from sensor at startup instead from saved file. Added logic to get_depth_value
+			and get_range_value to allow better reporting on specific sensor errors.
 */
 //#define DEBUG
 #include "mhsdpi.h"
-#define VERSION "1.2"
+#define VERSION "1.3"
 
 /*
 main program
@@ -56,7 +58,7 @@ int main (int argc, char *argv[])
 	config.manual_datum = 5000;  // 5000 mm is default mounting datum height of sensor
 	config.set_manual_datum = false;
 	config.stdev_filter = 6;
-	
+
 	FILE *ttyfile;
 
 	uint32_t mh_data_id = 0;
@@ -126,11 +128,6 @@ int main (int argc, char *argv[])
 		return -1;
 	}
 
-	if(read_array(readings, MAXREADINGS, readings_file_name) >= 0)
-		for(i = 1; i < MAXREADINGS; i++) // initilize the sma values array with something
-			if (readings[i] == 0)
-				readings[i] = readings[i - 1];
-	
 	ttyfile = fopen(config.device, "ab+");
 
 	if (!isatty(fileno(ttyfile)))
@@ -153,7 +150,7 @@ int main (int argc, char *argv[])
 		}
 		return 2;
 	}
-	
+
 	// restart remote sensor if called for
 	if(config.restart_remote_sensor)
 	{
@@ -165,8 +162,8 @@ int main (int argc, char *argv[])
 		if(config.write_log)
 			writelog(config.log_file_name, argv[0], message_buffer);
 	}
-	
-	
+
+
 	if(config.set_manual_datum && !config.set_auto_datum)
 	{
 		if(config.manual_datum == set_manual_calibration_value(ttyfile, config.manual_datum))
@@ -177,7 +174,7 @@ int main (int argc, char *argv[])
 		if(config.write_log)
 			writelog(config.log_file_name, argv[0], message_buffer);
 	}
-	
+
 	if(config.set_auto_datum && !config.set_manual_datum)
 	{
 		int datum = 0;
@@ -196,6 +193,9 @@ int main (int argc, char *argv[])
 		writelog(config.log_file_name, argv[0], message_buffer);
 	}
 
+	for(i = 1; i < MAXREADINGS; i++) // initilize the sma values array with current sensor readings
+		readings[i] = get_depth_value(ttyfile);
+
 	seconds_since_midnight = get_seconds_since_midnight();
 
 	if(config.sleep_seconds - (seconds_since_midnight % config.sleep_seconds) > 0)
@@ -204,14 +204,14 @@ int main (int argc, char *argv[])
 		writelog(config.log_file_name, argv[0], message_buffer);
 		sleep(config.sleep_seconds - (seconds_since_midnight % config.sleep_seconds)); // start polling on an even boundry of the specified polling interval
 	}
-	
+
 	do
 	{
 		mh_data_id = 0;
 
-		snowdepth = get_depth_value(ttyfile); // read sensor value for snow depth via xBee explorer on USB
-		batteryVolts = get_battery_voltage(ttyfile); // read sensor value for battery volts via xBee explorer on USB
-		
+		snowdepth = get_depth_value(ttyfile); // read sensor value for snow depth via xBee Explorer on USB
+		batteryVolts = get_battery_voltage(ttyfile); // read sensor value for battery volts via xBee Explorer on USB
+
 		if(snowdepth >= 0)
 		{
 			new_average = (int)(average(readings, MAXREADINGS) + 0.5);
@@ -223,9 +223,9 @@ int main (int argc, char *argv[])
 			}
 
 			snowdepth_sma = (int)(moving_average(readings, MAXREADINGS, snowdepth) + 0.5); // smooth the sensor readings
-			
+
 			write_array(readings, MAXREADINGS, readings_file_name);
-			
+
 			fprintf(stdout, mh_data_fmt, mh_data_id++, snowdepth_sma * 100);
 			//sprintf(message_buffer,"Snow depth reading: %d", snowdepth);
 			//writelog(config.log_file_name, argv[0], message_buffer);
@@ -238,12 +238,12 @@ int main (int argc, char *argv[])
 		}
 
 		fprintf(stdout, mh_data_fmt, mh_data_id++, batteryVolts);
-		
+
 		fflush(stdout);
 
 		if(config.close_tty_file) // close tty file
 			fclose(ttyfile);
-		
+
 		seconds_since_midnight = get_seconds_since_midnight();
 		sleep(config.sleep_seconds - (seconds_since_midnight % config.sleep_seconds)); // sleep just the right amount to keep on boundry
 
@@ -332,7 +332,7 @@ float average(const int *values, int n)
 	int i = 0;
 	for(i = 0; i < n; i++)
 		sum += values[i];
-		
+
 	return(sum / n);
 }
 // calculate standard deviation of an array of n integar values
@@ -365,11 +365,11 @@ void print_firmware_version(FILE *stream, char *logfilename, char *myname)
 	for(i = 0; i < 7; i++)
 	{
 		fgets(buf[i], malloc_usable_size(buf[i]), stream);
-#ifdef DEBUG		
+#ifdef DEBUG
 		int j = 0;
 		for (j = 0; j < strlen(buf[i]); j++)
 			fprintf(stderr, "%c - 0x%x\n", buf[i][j],  buf[i][j]);;
-#endif			
+#endif
 		buf[i][strlen(buf[i]) - 2] = '\0'; // get rid of CR-LF at end of string
 		writelog(logfilename, myname, buf[i]);
 		free(buf[i]);
@@ -384,7 +384,7 @@ int get_calibration_value(FILE *stream)
 	fflush(stream);
 	fputc(CMD_GET_CALIBRATION, stream);
 	fgets(message_buffer, sizeof(message_buffer), stream);
-#ifdef DEBUG		
+#ifdef DEBUG
 		int i = 0;
 		for (i = 0; i < strlen(message_buffer); i++)
 			fprintf(stderr, "%c - 0x%x\n", message_buffer[i],  message_buffer[i]);;
@@ -402,7 +402,7 @@ int set_calibration_value(FILE *stream)
 	fflush(stream);
 	fputc(CMD_SET_CALIBRATE, stream);
 	fgets(message_buffer, sizeof(message_buffer), stream);
-#ifdef DEBUG		
+#ifdef DEBUG
 		int i = 0;
 		for (i = 0; i < strlen(message_buffer); i++)
 			fprintf(stderr, "%c - 0x%x\n", message_buffer[i],  message_buffer[i]);;
@@ -424,7 +424,7 @@ int set_manual_calibration_value(FILE *stream, int value)
 	fflush(stream);
 	fputc(CMD_SET_MANUAL_CALIBRATE, stream);
 	fgets(message_buffer, sizeof(message_buffer), stream);
-#ifdef DEBUG		
+#ifdef DEBUG
 		int i = 0;
 		for (i = 0; i < strlen(command_buffer); i++)
 			fprintf(stderr, "%c - 0x%x\n", command_buffer[i],  command_buffer[i]);;
@@ -446,8 +446,11 @@ int get_depth_value(FILE *stream)
 	fgets(message_buffer, sizeof(message_buffer), stream);
 	if(message_buffer[0] == CMD_GET_DEPTH && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
 		retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
+	else if(message_buffer[0] == CMD_GET_DEPTH && message_buffer[1] == '-' && (message_buffer[2] >= '0' && message_buffer[2] <= '9'))
+		retvalue = -(((message_buffer[2] - '0') * 1000) + ((message_buffer[3] - '0') * 100) + ((message_buffer[4] - '0') * 10) + (message_buffer[5] - '0'));
 	else
 		retvalue = -1;
+
 	return retvalue;
 }
 
@@ -461,9 +464,11 @@ int get_range_value(FILE *stream)
 	fgets(message_buffer, sizeof(message_buffer), stream);
 	if(message_buffer[0] == CMD_GET_RANGE && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
 		retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
+	else if(message_buffer[0] == CMD_GET_RANGE && message_buffer[1] == '-' && (message_buffer[2] >= '0' && message_buffer[2] <= '9'))
+		retvalue = -(((message_buffer[2] - '0') * 1000) + ((message_buffer[3] - '0') * 100) + ((message_buffer[4] - '0') * 10) + (message_buffer[5] - '0'));
 	else
 		retvalue = -1;
-		
+
 	return retvalue;
 }
 // read remote battery voltage
@@ -478,7 +483,7 @@ int get_battery_voltage(FILE *stream)
 		retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
 	else
 		retvalue = -1;
-		
+
 	return retvalue;
 }
 // send command to restart CPU on remote Teensey 3.1 microcontroller and check for boot message
@@ -489,7 +494,7 @@ boolean restart_sensor(FILE *stream)
 //	int i = 0;
 //	for(i = 0; i < 1; i++)
 //		buf[i] = malloc(80 * sizeof(char));
-		
+
 	fflush(stream);
 	fputc(CMD_RESTART, stream);
 	fflush(stream);
