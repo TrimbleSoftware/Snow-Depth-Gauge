@@ -14,12 +14,13 @@ Modified:   22-Sep-2014 by Fred Trimble ftt@smtcpa.com
 			Ver 1.1 Added both 3 standard deviation filtering and simple moving average smoothing to sensor readings
 			10-Nov-2014 by Fred Trimble ftt@smtcpa.com
 			Ver 1.2 Changed to read standard deviation range filtering value from .config file
-			Ver 1.3 Changed to read sma array values from sensor at startup instead from saved file. Added logic to get_depth_value
+			1-Dec-2014 by Fred Trimble ftt@smtcpa.com
+			Ver 1.3a Changed to read sma array values from sensor at startup instead from saved file. Added logic to get_depth_value
 			and get_range_value to allow better reporting on specific sensor errors.
 */
 //#define DEBUG
 #include "mhsdpi.h"
-#define VERSION "1.3"
+#define VERSION "1.3a"
 
 /*
 main program
@@ -32,6 +33,7 @@ int main (int argc, char *argv[])
 	strcpy(config_file_name, argv[0]);
 	strcat(config_file_name, ".conf");
 	static const char *optString = "BCd:h?Ls:t:";
+	int datum = 0;
 	int snowdepth = -1;
 	int snowdepth_sma = 0; // filtered Simple Moving Average snow depth
 	int batteryVolts = -1;
@@ -163,6 +165,9 @@ int main (int argc, char *argv[])
 			writelog(config.log_file_name, argv[0], message_buffer);
 	}
 
+	// log sensor firmware version
+	if(config.write_log)
+		print_firmware_version(ttyfile, config.log_file_name, argv[0]);
 
 	if(config.set_manual_datum && !config.set_auto_datum)
 	{
@@ -177,24 +182,28 @@ int main (int argc, char *argv[])
 
 	if(config.set_auto_datum && !config.set_manual_datum)
 	{
-		int datum = 0;
 		datum = set_calibration_value(ttyfile);
 		if(config.write_log)
 		{
-			sprintf(message_buffer, "auto sensor datum set to: %d", datum);
+			sprintf(message_buffer, "Auto sensor datum set to: %d", datum);
 			writelog(config.log_file_name, argv[0], message_buffer);
 		}
 	}
-	// log sensor firmware version
+
+	// log sensor datum value
 	if(config.write_log)
 	{
-		print_firmware_version(ttyfile, config.log_file_name, argv[0]);
-		sprintf(message_buffer,"Datum value: %d", get_calibration_value(ttyfile));
+		datum = get_calibration_value(ttyfile);
+		sprintf(message_buffer,"Datum value: %d", datum);
 		writelog(config.log_file_name, argv[0], message_buffer);
 	}
 
-	for(i = 1; i < MAXREADINGS; i++) // initilize the sma values array with current sensor readings
+	for(i = 0; i < MAXREADINGS; i++) // initilize the sma values array with current sensor readings
+	{
 		readings[i] = get_depth_value(ttyfile);
+		if(readings[i] == datum)
+			readings[i] = average(readings, i);
+	}
 
 	seconds_since_midnight = get_seconds_since_midnight();
 
@@ -215,7 +224,11 @@ int main (int argc, char *argv[])
 		if(snowdepth >= 0)
 		{
 			new_average = (int)(average(readings, MAXREADINGS) + 0.5);
-			if(abs(snowdepth) >= ((config.stdev_filter * standard_deviation(readings, MAXREADINGS)) + abs(new_average))) // if the sample is more than 6 standard deviations away from the average
+			
+			if(snowdepth == datum)
+				snowdepth = new_average;
+
+			if(abs(snowdepth) >= ((config.stdev_filter * standard_deviation(readings, MAXREADINGS)) + abs(new_average))) // if the sample is more than config.stdev_filter standard deviations away from the average
 			{
 				sprintf(message_buffer,"Snow depth: %d reading out of range per filtering rules. Using prior average: %d", snowdepth, new_average);
 				writelog(config.log_file_name, argv[0], message_buffer);
@@ -391,6 +404,7 @@ int get_calibration_value(FILE *stream)
 #endif
 	if(message_buffer[0] == CMD_GET_CALIBRATION && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
 		retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
+
 	return retvalue;
 }
 
@@ -498,7 +512,7 @@ boolean restart_sensor(FILE *stream)
 	fflush(stream);
 	fputc(CMD_RESTART, stream);
 	fflush(stream);
-	sleep(10); // delay to allow XBee daly + Teensy restart
+	sleep(10); // delay to allow XBee delay + Teensy restart
 	retvalue = true;
 //	for(i = 0; i < 1; i++)
 //	{
