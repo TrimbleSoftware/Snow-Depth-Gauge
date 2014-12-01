@@ -3,7 +3,7 @@
 mhsdpi.c
 
 meteohub "plug-in" weather station to read and log data from a 
-Trimble Ultrasonic Snow Depth Guage - Ver 1.3
+Trimble Ultrasonic Snow Depth Gauge - Ver 1.3a
 
 Written:	7-May-2014 by Fred Trimble ftt@smtcpa.com
 
