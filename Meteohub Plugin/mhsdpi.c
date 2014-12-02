@@ -201,7 +201,7 @@ int main (int argc, char *argv[])
 	for(i = 0; i < MAXREADINGS; i++) // initilize the sma values array with current sensor readings
 	{
 		readings[i] = get_depth_value(ttyfile);
-		if(readings[i] == datum)
+		if(readings[i] == datum || readings[i] < 0) // don't use error values
 			readings[i] = average(readings, i);
 	}
 
