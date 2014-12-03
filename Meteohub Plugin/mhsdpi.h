@@ -37,6 +37,7 @@
 /*
 	constants
 */
+#define RETRY_COUNT 10
 
 /*
 	typedefs

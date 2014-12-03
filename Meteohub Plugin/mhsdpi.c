@@ -3,7 +3,7 @@
 mhsdpi.c
 
 meteohub "plug-in" weather station to read and log data from a 
-Trimble Ultrasonic Snow Depth Gauge - Ver 1.3a
+Trimble Ultrasonic Snow Depth Gauge - Ver 1.4
 
 Written:	7-May-2014 by Fred Trimble ftt@smtcpa.com
 
@@ -17,10 +17,12 @@ Modified:   22-Sep-2014 by Fred Trimble ftt@smtcpa.com
 			1-Dec-2014 by Fred Trimble ftt@smtcpa.com
 			Ver 1.3a Changed to read sma array values from sensor at startup instead from saved file. Added logic to get_depth_value
 			and get_range_value to allow better reporting on specific sensor errors.
+			1-Dec-2014 by Fred Trimble ftt@smtcpa.com
+			Ver 1.4 Added retry logic to depth, range and auto calibrate functions
 */
 //#define DEBUG
 #include "mhsdpi.h"
-#define VERSION "1.3a"
+#define VERSION "1.4"
 
 /*
 main program
@@ -411,18 +413,31 @@ int get_calibration_value(FILE *stream)
 // set auto Snow Depth Sensor calibration height value
 int set_calibration_value(FILE *stream)
 {
+	int retry_count = RETRY_COUNT; // number of times to try and set the auto calibration value
 	char message_buffer[7];
 	int retvalue = -1;
-	fflush(stream);
-	fputc(CMD_SET_CALIBRATE, stream);
-	fgets(message_buffer, sizeof(message_buffer), stream);
+
+	do
+	{
+		fflush(stream);
+		fputc(CMD_SET_CALIBRATE, stream);
+		fgets(message_buffer, sizeof(message_buffer), stream);
 #ifdef DEBUG
 		int i = 0;
 		for (i = 0; i < strlen(message_buffer); i++)
 			fprintf(stderr, "%c - 0x%x\n", message_buffer[i],  message_buffer[i]);;
 #endif
-	if(message_buffer[0] == CMD_SET_CALIBRATE && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
-		retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
+		if(message_buffer[0] == CMD_SET_CALIBRATE && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
+			retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
+		else if(message_buffer[0] == CMD_SET_CALIBRATE && message_buffer[1] == '-' && (message_buffer[2] >= '0' && message_buffer[2] <= '9'))
+			retvalue = -(((message_buffer[2] - '0') * 1000) + ((message_buffer[3] - '0') * 100) + ((message_buffer[4] - '0') * 10) + (message_buffer[5] - '0'));
+		else
+			retvalue = -1;
+
+		retry_count--;
+	}
+	while(retry_count >= 0 && retvalue < 0);
+	
 	return retvalue;
 }
 
@@ -439,31 +454,41 @@ int set_manual_calibration_value(FILE *stream, int value)
 	fputc(CMD_SET_MANUAL_CALIBRATE, stream);
 	fgets(message_buffer, sizeof(message_buffer), stream);
 #ifdef DEBUG
-		int i = 0;
-		for (i = 0; i < strlen(command_buffer); i++)
-			fprintf(stderr, "%c - 0x%x\n", command_buffer[i],  command_buffer[i]);;
-		for (i = 0; i < strlen(message_buffer); i++)
-			fprintf(stderr, "%c - 0x%x\n", message_buffer[i],  message_buffer[i]);;
+	int i = 0;
+	for (i = 0; i < strlen(command_buffer); i++)
+		fprintf(stderr, "%c - 0x%x\n", command_buffer[i],  command_buffer[i]);;
+	for (i = 0; i < strlen(message_buffer); i++)
+		fprintf(stderr, "%c - 0x%x\n", message_buffer[i],  message_buffer[i]);;
 #endif
 	if(message_buffer[0] == CMD_SET_MANUAL_CALIBRATE && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
 		retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
+		
 	return retvalue;
 }
 
 // read Snow Depth Sensor snow depth value
 int get_depth_value(FILE *stream)
 {
+	int retry_count = RETRY_COUNT; // number of times to try and get a snow depth reading
 	char message_buffer[7];
 	int retvalue = -1;
-	fflush(stream);
-	fputc(CMD_GET_DEPTH, stream);
-	fgets(message_buffer, sizeof(message_buffer), stream);
-	if(message_buffer[0] == CMD_GET_DEPTH && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
-		retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
-	else if(message_buffer[0] == CMD_GET_DEPTH && message_buffer[1] == '-' && (message_buffer[2] >= '0' && message_buffer[2] <= '9'))
-		retvalue = -(((message_buffer[2] - '0') * 1000) + ((message_buffer[3] - '0') * 100) + ((message_buffer[4] - '0') * 10) + (message_buffer[5] - '0'));
-	else
-		retvalue = -1;
+	do
+	{
+		fflush(stream);
+		fputc(CMD_GET_DEPTH, stream);
+		fgets(message_buffer, sizeof(message_buffer), stream);
+		if(message_buffer[0] == CMD_GET_DEPTH && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
+		{
+			retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
+		}
+		else if(message_buffer[0] == CMD_GET_DEPTH && message_buffer[1] == '-' && (message_buffer[2] >= '0' && message_buffer[2] <= '9'))
+			retvalue = -(((message_buffer[2] - '0') * 1000) + ((message_buffer[3] - '0') * 100) + ((message_buffer[4] - '0') * 10) + (message_buffer[5] - '0'));
+		else
+			retvalue = -1;
+
+		retry_count--;
+	}
+	while(retry_count >= 0 && retvalue < 0);
 
 	return retvalue;
 }
@@ -471,17 +496,24 @@ int get_depth_value(FILE *stream)
 // read Snow Depth Sensor range value
 int get_range_value(FILE *stream)
 {
+	int retry_count = RETRY_COUNT; // number of times to try and get a range reading
 	char message_buffer[7];
 	int retvalue = -1;
-	fflush(stream);
-	fputc(CMD_GET_RANGE, stream);
-	fgets(message_buffer, sizeof(message_buffer), stream);
-	if(message_buffer[0] == CMD_GET_RANGE && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
-		retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
-	else if(message_buffer[0] == CMD_GET_RANGE && message_buffer[1] == '-' && (message_buffer[2] >= '0' && message_buffer[2] <= '9'))
-		retvalue = -(((message_buffer[2] - '0') * 1000) + ((message_buffer[3] - '0') * 100) + ((message_buffer[4] - '0') * 10) + (message_buffer[5] - '0'));
-	else
-		retvalue = -1;
+	do
+	{
+		fflush(stream);
+		fputc(CMD_GET_RANGE, stream);
+		fgets(message_buffer, sizeof(message_buffer), stream);
+		if(message_buffer[0] == CMD_GET_RANGE && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
+			retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
+		else if(message_buffer[0] == CMD_GET_RANGE && message_buffer[1] == '-' && (message_buffer[2] >= '0' && message_buffer[2] <= '9'))
+			retvalue = -(((message_buffer[2] - '0') * 1000) + ((message_buffer[3] - '0') * 100) + ((message_buffer[4] - '0') * 10) + (message_buffer[5] - '0'));
+		else
+			retvalue = -1;
+
+		retry_count--;
+	}
+	while(retry_count >= 0 && retvalue < 0);
 
 	return retvalue;
 }
