@@ -99,6 +99,11 @@ int get_configuration(struct config_t *config, char *path)
 			config->stdev_filter = (uint16_t)atoi(val);
 			continue;
 		}
+		if ((strcmp(token,"RETRY_COUNT")==0) && (strlen(val) != 0))
+		{
+			config->retry_count = (uint16_t)atoi(val);
+			continue;
+		}
 	}
 
 	return (true);

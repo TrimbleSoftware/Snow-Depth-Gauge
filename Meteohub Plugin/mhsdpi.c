@@ -7,18 +7,20 @@ Trimble Ultrasonic Snow Depth Gauge - Ver 1.4
 
 Written:	7-May-2014 by Fred Trimble ftt@smtcpa.com
 
-Modified:   22-Sep-2014 by Fred Trimble ftt@smtcpa.com
-		    Ver 1.0 Correct sensor number incerment when no snow depth data is found
+Modified:	22-Sep-2014 by Fred Trimble ftt@smtcpa.com
+				Ver 1.0 Correct sensor number incerment when no snow depth data is found
 
 			22-Oct-2014 by Fred Trimble ftt@smtcpa.com
-			Ver 1.1 Added both 3 standard deviation filtering and simple moving average smoothing to sensor readings
+				Ver 1.1 Added both 3 standard deviation filtering and simple moving average smoothing to sensor readings
 			10-Nov-2014 by Fred Trimble ftt@smtcpa.com
-			Ver 1.2 Changed to read standard deviation range filtering value from .config file
+				Ver 1.2 Changed to read standard deviation range filtering value from .conf file
 			1-Dec-2014 by Fred Trimble ftt@smtcpa.com
-			Ver 1.3a Changed to read sma array values from sensor at startup instead from saved file. Added logic to get_depth_value
-			and get_range_value to allow better reporting on specific sensor errors.
+				Ver 1.3a Changed to read sma array values from sensor at startup instead from saved file. Added logic to get_depth_value
+				and get_range_value to allow better reporting on specific sensor errors.
 			1-Dec-2014 by Fred Trimble ftt@smtcpa.com
-			Ver 1.4 Added retry logic to depth, range and auto calibrate functions
+				Ver 1.4 Added retry logic to depth, range and auto calibrate functions
+			4-Dec-2014 by Fred Trimble ftt@smtcpa.com
+				Ver 1.5 Added retry count to .conf file
 */
 //#define DEBUG
 #include "mhsdpi.h"
@@ -62,7 +64,8 @@ int main (int argc, char *argv[])
 	config.manual_datum = 5000;  // 5000 mm is default mounting datum height of sensor
 	config.set_manual_datum = false;
 	config.stdev_filter = 6;
-
+	config.retry_count = 10;
+	
 	FILE *ttyfile;
 
 	uint32_t mh_data_id = 0;
@@ -184,7 +187,7 @@ int main (int argc, char *argv[])
 
 	if(config.set_auto_datum && !config.set_manual_datum)
 	{
-		datum = set_calibration_value(ttyfile);
+		datum = set_calibration_value(ttyfile, config.retry_count);
 		if(config.write_log)
 		{
 			sprintf(message_buffer, "Auto sensor datum set to: %d", datum);
@@ -202,7 +205,7 @@ int main (int argc, char *argv[])
 
 	for(i = 0; i < MAXREADINGS; i++) // initilize the sma values array with current sensor readings
 	{
-		readings[i] = get_depth_value(ttyfile);
+		readings[i] = get_depth_value(ttyfile, config.retry_count);
 		if(readings[i] == datum || readings[i] < 0) // don't use error values
 			readings[i] = average(readings, i);
 	}
@@ -220,7 +223,7 @@ int main (int argc, char *argv[])
 	{
 		mh_data_id = 0;
 
-		snowdepth = get_depth_value(ttyfile); // read sensor value for snow depth via xBee Explorer on USB
+		snowdepth = get_depth_value(ttyfile, config.retry_count); // read sensor value for snow depth via xBee Explorer on USB
 		batteryVolts = get_battery_voltage(ttyfile); // read sensor value for battery volts via xBee Explorer on USB
 
 		if(snowdepth >= 0)
@@ -411,9 +414,8 @@ int get_calibration_value(FILE *stream)
 }
 
 // set auto Snow Depth Sensor calibration height value
-int set_calibration_value(FILE *stream)
+int set_calibration_value(FILE *stream, uint16_t retry_count)
 {
-	int retry_count = RETRY_COUNT; // number of times to try and set the auto calibration value
 	char message_buffer[7];
 	int retvalue = -1;
 
@@ -467,9 +469,8 @@ int set_manual_calibration_value(FILE *stream, int value)
 }
 
 // read Snow Depth Sensor snow depth value
-int get_depth_value(FILE *stream)
+int get_depth_value(FILE *stream, uint16_t retry_count)
 {
-	int retry_count = RETRY_COUNT; // number of times to try and get a snow depth reading
 	char message_buffer[7];
 	int retvalue = -1;
 	do
@@ -494,9 +495,8 @@ int get_depth_value(FILE *stream)
 }
 
 // read Snow Depth Sensor range value
-int get_range_value(FILE *stream)
+int get_range_value(FILE *stream, uint16_t retry_count)
 {
-	int retry_count = RETRY_COUNT; // number of times to try and get a range reading
 	char message_buffer[7];
 	int retvalue = -1;
 	do

@@ -37,7 +37,6 @@
 /*
 	constants
 */
-#define RETRY_COUNT 10
 
 /*
 	typedefs
@@ -72,6 +71,7 @@ struct config_t
 	boolean  set_manual_datum;
 	uint16_t sleep_seconds;
 	uint16_t stdev_filter;
+	uint16_t retry_count;
 };
 
 /*
@@ -84,10 +84,10 @@ float average(const int *values, int n);
 float standard_deviation(const int *values, int n);
 void print_firmware_version(FILE *stream, char *logfilename, char *myname);
 int get_calibration_value(FILE *stream);
-int set_calibration_value(FILE *stream);
+int set_calibration_value(FILE *stream, uint16_t retry_count);
 int set_manual_calibration_value(FILE *stream, int value);
-int get_depth_value(FILE *stream);
-int get_range_value(FILE *stream);
+int get_depth_value(FILE *stream, uint16_t retry_count);
+int get_range_value(FILE *stream, uint16_t retry_count);
 int get_battery_voltage(FILE *stream);
 boolean restart_sensor(FILE *stream);
 
