@@ -1,4 +1,4 @@
-# make file for meteohub/meteoplug plig-in for the Trimble Snow Depth Gauge USB to serial XBee interface
+# make file for meteohub/meteoplug plug-in for the Trimble Snow Depth Gauge USB to serial XBee interface
 # for both meteohub on Iomega iConnect hardware running Debian 4 Linux AND meteoplug on TP-LINK MR3020 hardware running OpenWRT Linux
 # FTRIMBLE 7-May-2014
 
@@ -32,6 +32,16 @@ ifeq ($(UNAME),armv5tel)
 	# c and linker flags
 	CFLAGS  = -Wall -O2 -U DEBUG
 	LDFLAGS = -s -lm
+endif
+
+#gcc settings for gcc running on raspbery pi meteohub kernel
+ifeq ($(UNAME),armv6l)
+	# user standard gcc
+	CC 	= gcc
+	LD 	= gcc
+	# c and linker flags
+	CFLAGS	= -Wall -O2 -U DEBUG
+	LDFLAGS	= -s -lm
 endif
 
 all:	mhsdpi
