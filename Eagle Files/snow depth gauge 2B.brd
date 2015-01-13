@@ -1823,10 +1823,10 @@ Please make sure your boards conform to these design rules.</description>
 <attribute name="VALUE" x="28.067" y="24.003" size="1.27" layer="27" rot="R180"/>
 <attribute name="PARTNO" value="KTR18EZPJ103" x="26.67" y="21.59" size="1.778" layer="27" rot="R180" display="off"/>
 </element>
-<element name="R4" library="resistor" package="R3216" value="20K" x="26.67" y="11.43" smashed="yes" rot="R180">
+<element name="R4" library="resistor" package="R3216" value="27K" x="26.67" y="11.43" smashed="yes" rot="R180">
 <attribute name="NAME" x="30.44825" y="11.39825" size="1.27" layer="25" rot="R180" align="center"/>
 <attribute name="VALUE" x="28.067" y="13.843" size="1.27" layer="27" rot="R180"/>
-<attribute name="PARTNO" value="KTR18EZPF2002" x="26.67" y="11.43" size="1.778" layer="27" rot="R180" display="off"/>
+<attribute name="PARTNO" value="KTR18EZPJ273" x="26.67" y="11.43" size="1.778" layer="27" rot="R180" display="off"/>
 </element>
 <element name="Q3" library="transistor-neu-to92" package="SOT23-BEC" value="MMBT2222A" x="26.67" y="33.02" smashed="yes" rot="R180">
 <attribute name="NAME" x="30.48" y="33.02" size="1.27" layer="25" rot="R180" align="center"/>
@@ -1857,10 +1857,10 @@ Please make sure your boards conform to these design rules.</description>
 <element name="U$2" library="SparkFun-Electromechanical" package="STAND-OFF" value="" x="2.54" y="45.72"/>
 <element name="U$3" library="SparkFun-Electromechanical" package="STAND-OFF" value="" x="44.45" y="2.54"/>
 <element name="U$4" library="SparkFun-Electromechanical" package="STAND-OFF" value="" x="44.45" y="45.72"/>
-<element name="R3" library="resistor" package="R3216" value="11K" x="26.67" y="13.97" smashed="yes" rot="R180">
+<element name="R3" library="resistor" package="R3216" value="10K" x="26.67" y="13.97" smashed="yes" rot="R180">
 <attribute name="NAME" x="30.44825" y="13.93825" size="1.27" layer="25" rot="R180" align="center"/>
 <attribute name="VALUE" x="28.067" y="16.383" size="1.27" layer="27" rot="R180"/>
-<attribute name="PARTNO" value="KTR18EZPF1102" x="26.67" y="13.97" size="1.778" layer="27" rot="R180" display="off"/>
+<attribute name="PARTNO" value="KTR18EZPJ103" x="26.67" y="13.97" size="1.778" layer="27" rot="R180" display="off"/>
 </element>
 <element name="U2" library="SparkFun-RF" package="XBEE-1" value="XBEE-1B1" x="33.02" y="12.7" smashed="yes">
 <attribute name="NAME" x="33.02" y="38.735" size="1.27" layer="25" align="center"/>

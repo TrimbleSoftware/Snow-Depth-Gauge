@@ -9166,8 +9166,8 @@ JST PH 2-pin thru-home side entry</description>
 <part name="R2" library="resistor" deviceset="R-US_" device="R3216" value="10K">
 <attribute name="PARTNO" value="KTR18EZPJ103"/>
 </part>
-<part name="R4" library="resistor" deviceset="R-US_" device="R3216" value="20K">
-<attribute name="PARTNO" value="KTR18EZPF2002"/>
+<part name="R4" library="resistor" deviceset="R-US_" device="R3216" value="27K">
+<attribute name="PARTNO" value="KTR18EZPJ273"/>
 </part>
 <part name="Q3" library="transistor-neu-to92" deviceset="*-NPN-" device="SOT23-BEC" technology="MMBT2222ALT1" value="MMBT2222A">
 <attribute name="PARTNO" value="MMBT2222A"/>
@@ -9187,8 +9187,8 @@ JST PH 2-pin thru-home side entry</description>
 <part name="FRAME1" library="frames" deviceset="FRAME_A_L" device="" value="snow depth gauge"/>
 <part name="GND1" library="SparkFun-Aesthetics" deviceset="GND" device=""/>
 <part name="GND4" library="SparkFun-Aesthetics" deviceset="GND" device=""/>
-<part name="R3" library="resistor" deviceset="R-US_" device="R3216" value="11K">
-<attribute name="PARTNO" value="KTR18EZPF1102"/>
+<part name="R3" library="resistor" deviceset="R-US_" device="R3216" value="10K">
+<attribute name="PARTNO" value="KTR18EZPJ103"/>
 </part>
 <part name="U2" library="SparkFun-RF" deviceset="XBEE-1" device="B1">
 <attribute name="PARTNO" value="XB24-AUI-001"/>
@@ -9341,6 +9341,7 @@ External temperature sensor</text>
 <circle x="212.598" y="83.82" radius="0.0254" width="1.27" layer="97"/>
 <circle x="223.52" y="73.406" radius="0.0254" width="1.27" layer="97"/>
 <wire x1="222.25" y1="79.756" x2="222.25" y2="74.93" width="0.1524" layer="97"/>
+<text x="94.742" y="51.308" size="1.778" layer="150">D C B+G</text>
 </plain>
 <instances>
 <instance part="R1" gate="G$1" x="63.5" y="93.98">
