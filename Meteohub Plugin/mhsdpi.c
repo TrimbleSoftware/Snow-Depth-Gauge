@@ -21,10 +21,12 @@ Modified:	22-Sep-2014 by Fred Trimble ftt@smtcpa.com
 				Ver 1.4 Added retry logic to depth, range and auto calibrate functions
 			4-Dec-2014 by Fred Trimble ftt@smtcpa.com
 				Ver 1.5 Added retry count to .conf file
+			23-Feb-2015 by Fred Trimble ft@smtcpa.com
+				Ver 1.6 Added reread of sma array when stddev is out of range
 */
 //#define DEBUG
 #include "mhsdpi.h"
-#define VERSION "1.4"
+#define VERSION "1.6"
 
 /*
 main program
@@ -203,18 +205,16 @@ int main (int argc, char *argv[])
 		writelog(config.log_file_name, argv[0], message_buffer);
 	}
 
-	for(i = 0; i < MAXREADINGS; i++) // initilize the sma values array with current sensor readings
+	if(get_initial_sensor (readings, datum, ttyfile, config.retry_count) == 0)
 	{
-		readings[i] = get_depth_value(ttyfile, config.retry_count);
-		if(readings[i] == datum || readings[i] < 0) // don't use error values
-			readings[i] = average(readings, i);
+		writelog(config.log_file_name, argv[0], "Error getting initial sensor values");
 	}
 
 	seconds_since_midnight = get_seconds_since_midnight();
 
 	if(config.sleep_seconds - (seconds_since_midnight % config.sleep_seconds) > 0)
 	{
-		sprintf(message_buffer,"Initial sleep: %d", config.sleep_seconds - (seconds_since_midnight % config.sleep_seconds));
+		sprintf(message_buffer, "Initial sleep: %d", config.sleep_seconds - (seconds_since_midnight % config.sleep_seconds));
 		writelog(config.log_file_name, argv[0], message_buffer);
 		sleep(config.sleep_seconds - (seconds_since_midnight % config.sleep_seconds)); // start polling on an even boundry of the specified polling interval
 	}
@@ -235,8 +235,13 @@ int main (int argc, char *argv[])
 
 			if(abs(snowdepth) >= ((config.stdev_filter * standard_deviation(readings, MAXREADINGS)) + abs(new_average))) // if the sample is more than config.stdev_filter standard deviations away from the average
 			{
-				sprintf(message_buffer,"Snow depth: %d reading out of range per filtering rules. Using prior average: %d", snowdepth, new_average);
-				writelog(config.log_file_name, argv[0], message_buffer);
+				writelog(config.log_file_name, argv[0],"Snow depth reading out of range. Reinitializing sensor");;
+				if(get_initial_sensor (readings, datum, ttyfile, config.retry_count) == 0)
+				{
+					writelog(config.log_file_name, argv[0], "Error getting initial sensor values");
+				}
+				new_average = (int)(average(readings, MAXREADINGS) + 0.5);
+				sprintf(message_buffer,"Snow depth: %d reading out of range per filtering rules. Using new average: %d", snowdepth, new_average);
 				snowdepth = new_average; // use the prior readings average
 			}
 
@@ -292,6 +297,23 @@ int main (int argc, char *argv[])
 /*
 function bodies
 */
+
+// read sensor vaules into intial ary used for sma smoothing
+int get_initial_sensor (int *values, int datum, FILE *stream, uint16_t retry_count)
+{
+	int retval = 0;
+	int i = 0;
+	for(i = 0; i < MAXREADINGS; i++) // initilize the sma values array with current sensor readings
+	{
+		values[i] = get_depth_value(stream, retry_count);
+		if(values[i] == datum || values[i] < 0) // don't use error values
+			values[i] = average(values, i);
+		else
+			retval = 1;
+	}
+	return retval;
+}
+
 
 // write array of int to a file 
 int write_array(const int *values, int n, char *filename)

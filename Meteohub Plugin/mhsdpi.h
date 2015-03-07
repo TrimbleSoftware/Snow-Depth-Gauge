@@ -77,6 +77,7 @@ struct config_t
 /*
 	function prototypes
 */
+int get_initial_sensor (int *values, int datum, FILE *stream, uint16_t retry_count);
 int write_array(const int *values, int n, char *filename);
 int read_array(int *values,int n, char *filename);
 float moving_average(int *values, int n, int new_value);
