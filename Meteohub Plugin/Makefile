@@ -44,6 +44,16 @@ ifeq ($(UNAME),armv6l)
 	LDFLAGS	= -s -lm
 endif
 
+#gcc settings for gcc running on raspbery pi 2 meteohub kernel
+ifeq ($(UNAME),armv7l)
+        # user standard gcc
+        CC      = gcc
+        LD      = gcc
+        # c and linker flags
+        CFLAGS  = -Wall -O2 -U DEBUG
+        LDFLAGS = -s -lm
+endif
+
 all:	mhsdpi
 
 debug: clean debug_compile mhsdpi
