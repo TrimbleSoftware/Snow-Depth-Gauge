@@ -9,7 +9,6 @@ Written:	7-May-2014 by Fred Trimble ftt@smtcpa.com
 
 Modified:	22-Sep-2014 by Fred Trimble ftt@smtcpa.com
 				Ver 1.0 Correct sensor number incerment when no snow depth data is found
-
 			22-Oct-2014 by Fred Trimble ftt@smtcpa.com
 				Ver 1.1 Added both 3 standard deviation filtering and simple moving average smoothing to sensor readings
 			10-Nov-2014 by Fred Trimble ftt@smtcpa.com
@@ -21,12 +20,16 @@ Modified:	22-Sep-2014 by Fred Trimble ftt@smtcpa.com
 				Ver 1.4 Added retry logic to depth, range and auto calibrate functions
 			4-Dec-2014 by Fred Trimble ftt@smtcpa.com
 				Ver 1.5 Added retry count to .conf file
-			23-Feb-2015 by Fred Trimble ft@smtcpa.com
+			23-Feb-2015 by Fred Trimble ftt@smtcpa.com
 				Ver 1.6 Added reread of sma array when stddev is out of range
+			06-Sept-2015 by Fred Trimble ftt@smtcpa.com
+				Ver 1.7 Added LiPo charger status output for Snow Depth Gauge Version 2B-1.5
+
 */
+
 //#define DEBUG
 #include "mhsdpi.h"
-#define VERSION "1.6"
+#define VERSION "1.7"
 
 /*
 main program
@@ -41,6 +44,7 @@ int main (int argc, char *argv[])
 	static const char *optString = "BCd:h?Ls:t:";
 	int datum = 0;
 	int snowdepth = -1;
+	int chargerStatus = -1;
 	int snowdepth_sma = 0; // filtered Simple Moving Average snow depth
 	int batteryVolts = -1;
 	int readings[MAXREADINGS];
@@ -225,6 +229,7 @@ int main (int argc, char *argv[])
 
 		snowdepth = get_depth_value(ttyfile, config.retry_count); // read sensor value for snow depth via xBee Explorer on USB
 		batteryVolts = get_battery_voltage(ttyfile); // read sensor value for battery volts via xBee Explorer on USB
+		chargerStatus = get_charger_status(ttyfile); // read LiPo charger status
 
 		if(snowdepth >= 0)
 		{
@@ -260,7 +265,8 @@ int main (int argc, char *argv[])
 			mh_data_id++;
 		}
 
-		fprintf(stdout, mh_data_fmt, mh_data_id++, batteryVolts);
+		fprintf(stdout, mh_data_fmt, mh_data_id++, batteryVolts); // battery voltage is already *100 comming from sensor
+		fprintf(stdout, mh_data_fmt, mh_data_id++, chargerStatus * 100);
 
 		fflush(stdout);
 
@@ -548,6 +554,21 @@ int get_battery_voltage(FILE *stream)
 	fputc(CMD_GET_VOLTAGE, stream);
 	fgets(message_buffer, sizeof(message_buffer), stream);
 	if(message_buffer[0] == CMD_GET_VOLTAGE && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
+		retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
+	else
+		retvalue = -1;
+
+	return retvalue;
+}
+// read LiPo batter charger status from remote sensor
+int get_charger_status(FILE *stream)
+{
+	char message_buffer[7];
+	int retvalue = -1;
+	fflush(stream);
+	fputc(CMD_GET_CHARGER_STATUS, stream);
+	fgets(message_buffer, sizeof(message_buffer), stream);
+	if(message_buffer[0] == CMD_GET_CHARGER_STATUS && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
 		retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
 	else
 		retvalue = -1;

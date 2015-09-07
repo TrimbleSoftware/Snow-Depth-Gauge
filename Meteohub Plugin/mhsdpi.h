@@ -32,6 +32,7 @@
 #define CMD_GET_CALIBRATION 'G'
 #define CMD_GET_RANGE 'R'
 #define CMD_SET_MANUAL_CALIBRATE 'S'
+#define CMD_GET_CHARGER_STATUS 'T'
 #define CMD_GET_VOLTAGE 'V'
 
 /*
@@ -90,6 +91,7 @@ int set_manual_calibration_value(FILE *stream, int value);
 int get_depth_value(FILE *stream, uint16_t retry_count);
 int get_range_value(FILE *stream, uint16_t retry_count);
 int get_battery_voltage(FILE *stream);
+int get_charger_status(FILE *stream);
 boolean restart_sensor(FILE *stream);
 
 int set_tty_port(FILE *ttyfile, char *device, char* myname, char *log_file_name, boolean writetolog);
