@@ -8,7 +8,7 @@
                                        serial device readiness is detected to be able to tell if Maxbotix sensor has failed or
                                        is disconnected. Also added XBee reset functionality.
            Version 1.1  25-June-2014 Added watchdog timer per http://forum.pjrc.com/threads/25370-Teensy-3-0-Watchdog-Timer
-           Version 1.2  06-Aug-2014  Fixed bug with errors not being retunred on Range command.
+           Version 1.2  06-Aug-2014  Fixed bug with errors not being returned on Range command.
            Version 1.3  17-Sep-2014  Added lowpower sleep.
            Version 1.4  01-Oct-2014  Cleaned up some code having to do with XBee reset.
            Version 1.5  04-Sep-2015  Code changes for hardware ver 2B integration with Adafriut solar charger http://www.adafruit.com/products/390
@@ -710,16 +710,16 @@ void printResetType()
   if (RCM_SRS0 & RCM_SRS0_LVD)       Serial.println("[RCM_SRS0] - Low-voltage Detect Reset");
 }
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+//#ifdef __cplusplus
+//extern "C" {
+//#endif
   void startup_early_hook() {
     WDOG_TOVALL = 3000; // The next 2 lines sets the time-out value. This is the value that the watchdog timer compares itself to.
     WDOG_TOVALH = 0;
     WDOG_STCTRLH = (WDOG_STCTRLH_ALLOWUPDATE | WDOG_STCTRLH_WDOGEN | WDOG_STCTRLH_WAITEN | WDOG_STCTRLH_STOPEN); // Enable WDG
     //WDOG_PRESC = 0; // prescaler 
   }
-#ifdef __cplusplus
-}
-#endif
+//#ifdef __cplusplus
+//}
+//#endif
 
