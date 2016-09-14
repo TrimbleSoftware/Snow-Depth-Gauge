@@ -73,7 +73,7 @@ XBee Pin 5 RESET +-----------------+
 #include <LowPower_Teensy3.h> // duff's Teensy 3 low power library https://github.com/duff2013/LowPower_Teensy3
 
 //#define DEBUG 1
-#define SWVER "1.5a"
+#define SWVER "1.5a 9/14/16"
 #define HWVER "2B"
 
 #define ABOUT "Trimble Ultrasonic Wireless Snow Depth Gauge - Ver"
