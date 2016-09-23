@@ -13,6 +13,7 @@
            Version 1.4  01-Oct-2014  Cleaned up some code having to do with XBee reset.
            Version 1.5  04-Sep-2015  Code changes for hardware ver 2B integration with Adafriut solar charger http://www.adafruit.com/products/390
                                        and xBee hardware wake/sleep on pin 17. http://www.fiz-ix.com/2012/11/low-power-xbee-sleep-mode-with-arduino-and-pin-hibernation/
+           Version 1.6  21-Sep-2016  Code changes to build with Arduino 1.6.11 and Teensyduino 1.30 and LowPower_Teensy3 library.   
 
  Maxbotix HRXL-Maxsonar MB7354 Teensy 3.1 TTL interface
  
@@ -73,7 +74,7 @@ XBee Pin 5 RESET +-----------------+
 #include <LowPower_Teensy3.h> // duff's Teensy 3 low power library https://github.com/duff2013/LowPower_Teensy3
 
 //#define DEBUG 1
-#define SWVER "1.5a 9/14/16"
+#define SWVER "1.6 9/21/16"
 #define HWVER "2B"
 
 #define ABOUT "Trimble Ultrasonic Wireless Snow Depth Gauge - Ver"
@@ -134,18 +135,31 @@ XBee Pin 5 RESET +-----------------+
 #define TWENTYFOUR_MHZ 24000000
 
 // watchdog
-#define RCM_SRS0_WAKEUP                     0x01
-#define RCM_SRS0_LVD                        0x02
-#define RCM_SRS0_LOC                        0x04
-#define RCM_SRS0_LOL                        0x08
-#define RCM_SRS0_WDOG                       0x20
-#define RCM_SRS0_PIN                        0x40
-#define RCM_SRS0_POR                        0x80
+//#define RCM_SRS0_WAKEUP                     0x01
+//#define RCM_SRS0_LVD                        0x02
+//#define RCM_SRS0_LOC                        0x04
+//#define RCM_SRS0_LOL                        0x08
+//#define RCM_SRS0_WDOG                       0x20
+//#define RCM_SRS0_PIN                        0x40
+//#define RCM_SRS0_POR                        0x80
+//
+//#define RCM_SRS1_LOCKUP                     0x02
+//#define RCM_SRS1_SW                         0x04
+//#define RCM_SRS1_MDM_AP                     0x08
+//#define RCM_SRS1_SACKERR                    0x20
 
-#define RCM_SRS1_LOCKUP                     0x02
-#define RCM_SRS1_SW                         0x04
-#define RCM_SRS1_MDM_AP                     0x08
-#define RCM_SRS1_SACKERR                    0x20
+#ifdef __cplusplus
+extern "C" {
+#endif
+  void startup_early_hook() {
+    WDOG_TOVALL = 3000; // The next 2 lines sets the time-out value. This is the value that the watchdog timer compares itself to.
+    WDOG_TOVALH = 0;
+    WDOG_STCTRLH = (WDOG_STCTRLH_ALLOWUPDATE | WDOG_STCTRLH_WDOGEN | WDOG_STCTRLH_WAITEN | WDOG_STCTRLH_STOPEN); // Enable WDG
+    //WDOG_PRESC = 0; // prescaler 
+  }
+#ifdef __cplusplus
+}
+#endif
 
 // globals
 TEENSY3_LP lp = TEENSY3_LP();
@@ -283,11 +297,12 @@ int setDatum (HardwareSerial_LP port)
 #ifdef DEBUG
   Serial.printf("ranged datum: %d", datum);
 #endif
-  setDatum(datum);
+  writeDatum(datum);
+  return datum;
 }
 
-// store 16 bit sensor mounting height datum into Teensy EEPROM at locations 0 and 1
-void setDatum (int datum)
+// write 16 bit sensor mounting height datum into Teensy EEPROM at locations 0 and 1
+void writeDatum (int datum)
 {
   lp.CPU(TWENTYFOUR_MHZ); // exit low power mode to be able to write EEPROM
   EEPROM.write(0, (datum & 0xff00) / 0x100);
@@ -587,9 +602,14 @@ void processCommand(void)
 
       case CMD_SET_CALIBRATE: // calibrate mounting height and store into EEPROM, send results out serial
       {
-        setDatum(Uart1);
+        int datumAsSet = 0;
+        datumAsSet = setDatum(Uart1);
         datum = getDatum();
-        XBeePrintf(Uart2, true, outputFormat, CMD_SET_CALIBRATE, datum);
+        if (datum != datumAsSet) // check to see that value stored is same value read from EEPROM
+          datum = ERR_BAD_DATUM;
+        else
+          XBeePrintf(Uart2, true, outputFormat, CMD_SET_CALIBRATE, datum);
+          
         break;
       }
 
@@ -636,7 +656,7 @@ void processCommand(void)
         )
         {
           datum = (buf[0] - ascii_0) * 1000 + (buf[1] - ascii_0) * 100 + (buf[2] - ascii_0) * 10 + (buf[3] - ascii_0);
-          setDatum(datum);
+          writeDatum(datum);
           datum = getDatum();
         }
         else
@@ -709,17 +729,4 @@ void printResetType()
   if (RCM_SRS0 & RCM_SRS0_LOL)       Serial.println("[RCM_SRS0] - Loss of Lock in PLL Reset");
   if (RCM_SRS0 & RCM_SRS0_LVD)       Serial.println("[RCM_SRS0] - Low-voltage Detect Reset");
 }
-
-//#ifdef __cplusplus
-//extern "C" {
-//#endif
-  void startup_early_hook() {
-    WDOG_TOVALL = 3000; // The next 2 lines sets the time-out value. This is the value that the watchdog timer compares itself to.
-    WDOG_TOVALH = 0;
-    WDOG_STCTRLH = (WDOG_STCTRLH_ALLOWUPDATE | WDOG_STCTRLH_WDOGEN | WDOG_STCTRLH_WAITEN | WDOG_STCTRLH_STOPEN); // Enable WDG
-    //WDOG_PRESC = 0; // prescaler 
-  }
-//#ifdef __cplusplus
-//}
-//#endif
 
