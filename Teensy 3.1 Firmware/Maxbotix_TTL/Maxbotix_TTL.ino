@@ -1,6 +1,6 @@
 /*
 
- Teensy 3.1 sketch that implements a snow depth gauge for use with XBee wireless communication with meteohub to log
+ Teensy 3.1/3.2 sketch that implements a snow depth gauge for use with XBee wireless communication with meteohub to log
  snow depth data using a Maxbotix ultrasonic range finder snow depth sensor.
  
  Written:  Version 1.0  10-June-2014 Trimble Software, Anchorage, AK
@@ -13,20 +13,24 @@
            Version 1.4  01-Oct-2014  Cleaned up some code having to do with XBee reset.
            Version 1.5  04-Sep-2015  Code changes for hardware ver 2B integration with Adafriut solar charger http://www.adafruit.com/products/390
                                        and xBee hardware wake/sleep on pin 17. http://www.fiz-ix.com/2012/11/low-power-xbee-sleep-mode-with-arduino-and-pin-hibernation/
-           Version 1.6  21-Sep-2016  Code changes to build with Arduino 1.6.11 and Teensyduino 1.30 and LowPower_Teensy3 library.   
+           Version 1.6  21-Sep-2016  Code changes to build with Arduino 1.6.11 and Teensyduino 1.30 and LowPower_Teensy3 library.
+           Version 1.6a 29-Sep-2016  Fixed buffer overflow on string operations that was causing Teensy to hang sometimes.
+           Version 1.6b 03-Oct-2016  Chunk xBee output into 63 byte chunks to prevent xBee on-board buffer overflow.
+           Version 1.6c 20-Nov-2016  Revert code back to compile with Arduino 1.0.6 and Teensyduino 1.20 to try and get wathdog timer working properly.
+           
 
- Maxbotix HRXL-Maxsonar MB7354 Teensy 3.1 TTL interface
+ Maxbotix HRXL-Maxsonar MB7354 Teensy 3.1/3.2 TTL interface
  
  Hookup:
  
- Teensy 3.1 Pin    Maxbotix MB7354 Pin
+ Teensy 3.1/.2 Pin Maxbotix MB7354 Pin
  ---------------   ---------------
     GND             7  GND via NPN transistor to have 3.3 VDC pin switch 5.0 VDC supply to Maxbotix sensor via low side switching
     Vin             6  V+
  0  RX1             5  Serial Output TTL
-  23 Digital Out     to Base of NPN transistor via 220 ohm 1/4 pullup resister used to switch 5.0 VDC supply of Maxbotix sensor
+  23 Digital Out     to Base of NPN transistor via 220 ohm 1/4 pullup resistor used to switch 5.0 VDC supply of Maxbotix sensor
  
- Teensy 3.1 Pins:
+ Teensy 3.1/3.2 Pins:
                      220 Ohm
      23 +-----------/\/\--------------+
                                       | B
@@ -73,9 +77,10 @@ XBee Pin 5 RESET +-----------------+
 #include <EEPROM.h>
 #include <LowPower_Teensy3.h> // duff's Teensy 3 low power library https://github.com/duff2013/LowPower_Teensy3
 
-//#define DEBUG 1
-#define SWVER "1.6 9/21/16"
+// #define DEBUG 1
+#define SWVER "1.6c 11/20/16"
 #define HWVER "2B"
+#define STRINGBUFSIZE 256
 
 #define ABOUT "Trimble Ultrasonic Wireless Snow Depth Gauge - Ver"
 #define CHAR_CR    0x0d
@@ -114,7 +119,7 @@ XBee Pin 5 RESET +-----------------+
 #define MAXBOTIXPOWERPIN   23 // pin to drive Base of NPN transistor to control power to Maxbotix sensor
 #define VOLTAGEPOWERPIN    22 // pin to drive Base of NPN transistor to control power to voltage divider circuit
 #define XBEERESETPIN       21 // pin to drive base of NPN transistor to pull low to cause XBee module to reset
-#define XBEESLEEPPIN       17 // pin to control xBee wake/sleep via pin 9 on the xBee
+#define XBEESLEEPPIN       17 // pin to control XBee wake/sleep via pin 9 on the xBee
 #define XBEEAWAKEPIN       16 // pin to detect if XBee is awake
 #define DONE_CHARGING_PIN  2  // pin to test if Adafruit solar charger is done charging
 #define STILL_CHARGING_PIN 3  // pin to test if Adafruit solar charger is still charging
@@ -124,7 +129,7 @@ XBee Pin 5 RESET +-----------------+
 #define LED_BRIGHT  255
 #define BLINK_LONG  500
 #define BLINK_SHORT 1
-#define ADCSAMPLES  10 // number of adc samples to take and average for reading battery voltage
+#define ADCSAMPLES  10 // number of ADC samples to take and average for reading battery voltage
 
 // status codes for Adafruit solar charger
 #define STATUS_DONE_CHARGING 2
@@ -135,46 +140,34 @@ XBee Pin 5 RESET +-----------------+
 #define TWENTYFOUR_MHZ 24000000
 
 // watchdog
-//#define RCM_SRS0_WAKEUP                     0x01
-//#define RCM_SRS0_LVD                        0x02
-//#define RCM_SRS0_LOC                        0x04
-//#define RCM_SRS0_LOL                        0x08
-//#define RCM_SRS0_WDOG                       0x20
-//#define RCM_SRS0_PIN                        0x40
-//#define RCM_SRS0_POR                        0x80
-//
-//#define RCM_SRS1_LOCKUP                     0x02
-//#define RCM_SRS1_SW                         0x04
-//#define RCM_SRS1_MDM_AP                     0x08
-//#define RCM_SRS1_SACKERR                    0x20
+#define RCM_SRS0_WAKEUP                     0x01
+#define RCM_SRS0_LVD                        0x02
+#define RCM_SRS0_LOC                        0x04
+#define RCM_SRS0_LOL                        0x08
+#define RCM_SRS0_WDOG                       0x20
+#define RCM_SRS0_PIN                        0x40
+#define RCM_SRS0_POR                        0x80
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-  void startup_early_hook() {
-    WDOG_TOVALL = 3000; // The next 2 lines sets the time-out value. This is the value that the watchdog timer compares itself to.
-    WDOG_TOVALH = 0;
-    WDOG_STCTRLH = (WDOG_STCTRLH_ALLOWUPDATE | WDOG_STCTRLH_WDOGEN | WDOG_STCTRLH_WAITEN | WDOG_STCTRLH_STOPEN); // Enable WDG
-    //WDOG_PRESC = 0; // prescaler 
-  }
-#ifdef __cplusplus
-}
-#endif
+#define RCM_SRS1_LOCKUP                     0x02
+#define RCM_SRS1_SW                         0x04
+#define RCM_SRS1_MDM_AP                     0x08
+#define RCM_SRS1_SACKERR                    0x20
 
 // globals
 TEENSY3_LP lp = TEENSY3_LP();
-HardwareSerial_LP Uart1 = HardwareSerial_LP(); // RX1 for Maxbotix sensor
+HardwareSerial_LP Uart1 = HardwareSerial_LP(); // RX1 for Maxbotix sensor. TX1 is not used.
 HardwareSerial2_LP Uart2 = HardwareSerial2_LP(); // RX2/TX2 for XBee
+const char ascii_nul = '\0';
 const char ascii_0 = '0';
 const char ascii_9 = '9';
 
 const char outputFormat[] = "%c%04.4d\n";
-IntervalTimer wdTimer;
 
+IntervalTimer wdTimer;
 
 void XBeeSleep(int SleepPin)
 {
-  // put the xBee to sleep
+  // put the XBee to sleep
 #ifdef DEBUG
   Serial.printf("Putting XBee to sleep...\n");
 #endif
@@ -198,16 +191,18 @@ boolean isXBeeAwake(int AwakePin)
   pinMode(AwakePin, INPUT_PULLUP);
   int isAwake = digitalRead(AwakePin);
 #ifdef DEBUG
-  Serial.printf("XBee isAwake: %d\n", isAwake);
+  Serial.printf("XBee is Awake: %d\n", isAwake);
 #endif
   return (isAwake > 0? true: false);
 }
 
+#define XBEEBUFFERSIZE 63
 int XBeePrintf(HardwareSerial2_LP port, boolean flickerLED, const char *format, ...)
 {
-  char buf[256];
+  char buf[STRINGBUFSIZE];
+  memset(buf, ascii_nul, sizeof(buf));
   va_list args;
-  int done;
+  int done = -1;
  
   if(!isXBeeAwake(XBEEAWAKEPIN)) // if XBee is asleep,
   {
@@ -219,10 +214,45 @@ int XBeePrintf(HardwareSerial2_LP port, boolean flickerLED, const char *format, 
   vsnprintf(buf, sizeof(buf), format, args);
   va_end(args);
   port.clear();
+  int i = 0;
+  i = strlen(buf);
 #ifdef DEBUG
   Serial.print(buf);
+  Serial.println(i);
 #endif
-  done = port.print(buf);
+
+  if(i > XBEEBUFFERSIZE) // break long strings up into 63 byte chunks to fit into xBee on-board buffer
+  {
+    char *s;
+    s = buf;
+    char buf64[XBEEBUFFERSIZE+1];
+    memset(buf64, ascii_nul, XBEEBUFFERSIZE+1);
+    for(int j = 1; j <= (int)(i / XBEEBUFFERSIZE); j++)
+    {
+      strncpy(buf64, s, XBEEBUFFERSIZE);
+#ifdef DEBUG      
+      Serial.println(buf64);
+#endif      
+      done = port.print(buf64);
+      delay(10);
+      memset(buf64, ascii_nul, XBEEBUFFERSIZE+1);
+      s = buf + (XBEEBUFFERSIZE * j);
+    }
+    memset(buf64, ascii_nul, XBEEBUFFERSIZE+1);
+    strncpy(buf64, s, i % XBEEBUFFERSIZE);
+#ifdef DEBUG
+    Serial.println(i % XBEEBUFFERSIZE);
+    Serial.print(buf64);
+#endif     
+    done = port.print(buf64);
+    delay(10);
+  }
+  else
+  {
+    done = port.print(buf);
+    delay(10);
+  }
+  
   port.flush();
 
   if(flickerLED)
@@ -329,7 +359,7 @@ int getDatum()
 // get Maxbotix sensor boot info
 void getSensorInfo (HardwareSerial_LP port1, HardwareSerial2_LP port2)
 {
-  char buf[64];
+  char buf[6][STRINGBUFSIZE];
 
   digitalWrite(MAXBOTIXPOWERPIN, HIGH); // turn on/boot Maxbotix Sensor  
   delay(100);
@@ -337,8 +367,12 @@ void getSensorInfo (HardwareSerial_LP port1, HardwareSerial2_LP port2)
   {
     for(int i = 0; i < 6; i++) // 6 lines of boot data
     {
-      port1.readBytesUntil(CHAR_CR, buf, sizeof(buf)); // read boot messages from Maxbotix sensor  
-      XBeePrintf(port2, false, "%s\n", buf);
+      memset(buf[i], ascii_nul, sizeof(buf[i]));
+      port1.readBytesUntil(CHAR_CR, buf[i], sizeof(buf[i])); // read boot messages from Maxbotix sensor  
+    }
+    for(int i = 0; i < 6; i++) // 6 lines of boot data
+    {
+          XBeePrintf(port2, false, "%s\n", buf[i]);
     }
   }
   digitalWrite(MAXBOTIXPOWERPIN, LOW); // turn off Maxbotix Sensor
@@ -351,7 +385,7 @@ void blinkLED_BuiltIn(int duration, int brightness)
   digitalWrite(LED_BUILTIN, LOW); // off
 }
 
-// get statistical mode of an array of ints
+// get statistical Mode of an array of ints
 // adapapted from http://playground.arduino.cc/Main/Average
 int mode(int *data, int count)
 {
@@ -445,7 +479,7 @@ float getVolts ()
     adcValue += analogRead(ADCPIN);
     
   adcValue = adcValue / ADCSAMPLES;
-  //delay(60000); // uncomment to get suficciant time to manually measure voltage on A0 pin
+  //delay(60000); // uncomment to get sufficient time to manually measure voltage on A0 pin
   digitalWrite(VOLTAGEPOWERPIN, LOW); // turn off voltage divider circuit  
   
   lp.CPU(TWO_MHZ); // go back to low power mode after ADC read
@@ -462,14 +496,15 @@ void ResetXBee(int resetPin)
 #ifdef DEBUG  
   delay(60000);
 #else
-  delay(250); // have to hold XBee pin 5 low for atleast 200ms
+  delay(250); // have to hold XBee pin 5 low for atleast 200ms to cause it to reset
 #endif
   digitalWrite(resetPin, LOW);  
 }
 
 void PrintAbout(HardwareSerial2_LP port)
 {
-  char buf[64] = {0};
+  char buf[STRINGBUFSIZE] = {ascii_nul};
+  memset(buf, ascii_nul, sizeof(buf));
   strcat(buf, ABOUT);
   strcat(buf," ");
   strcat(buf, HWVER);
@@ -492,7 +527,7 @@ void PrintCommands(HardwareSerial2_LP port)
   XBeePrintf(port, false, "  %s\n", "R - Get snow depth sensor range (mm)");
   XBeePrintf(port, false, "  %s\n", "Sxxxx - Set manual calibration distance xxxx (mm)");
   XBeePrintf(port, false, "  %s\n", "T - Get battery charger status:");
-  XBeePrintf(port, false, "    %s\n", "2: Done Charging, 1: Charging, 0: Not Charging");
+  XBeePrintf(port, false, "  %s\n", "  2: Done Charging, 1: Charging, 0: Not Charging");
   XBeePrintf(port, false, "  %s\n", "V - Get battery voltage (100x)");
   XBeePrintf(port, false, "  %s\n", "? - List available commands");
   delay(50);
@@ -510,7 +545,7 @@ void KickDog()
   interrupts();
 }
 
-// setup Teensy 3.1 operating params
+// setup Teensy 3.1/3.2 operating params
 void setup()
 {
 #ifdef DEBUG
@@ -530,14 +565,13 @@ void setup()
   digitalWrite(MAXBOTIXPOWERPIN, LOW);
   digitalWrite(XBEERESETPIN, LOW);
   digitalWrite(VOLTAGEPOWERPIN, LOW);
-  XBeeWake(XBEESLEEPPIN); // make sure xBee is set to be awake when using periodic polling mode on the xBee
+  XBeeWake(XBEESLEEPPIN); // make sure XBee is set to be awake when using periodic polling mode on the XBee
   
 #ifdef DEBUG
   delay(20000);
   printResetType();
 #endif
   wdTimer.begin(KickDog, 500000); // kick the dog every 500msec
-
   Uart2.flush();
   Uart2.clear();
   PrintAbout(Uart2);
@@ -595,7 +629,7 @@ void processCommand(void)
         delay(50);
 #endif        
         ResetXBee(XBEERESETPIN); // Reset XBee
-        delay(50);
+        delay(500);
         CPU_RESTART;
         break;
       }
@@ -730,3 +764,17 @@ void printResetType()
   if (RCM_SRS0 & RCM_SRS0_LVD)       Serial.println("[RCM_SRS0] - Low-voltage Detect Reset");
 }
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+  //void startup_early_hook() __attribute__ ((weak));
+  void startup_early_hook() {
+    WDOG_TOVALL = 3000; // The next 2 lines sets the time-out value. This is the value that the watchdog timer compares itself to.
+    WDOG_TOVALH = 0;
+    WDOG_STCTRLH = (WDOG_STCTRLH_ALLOWUPDATE | WDOG_STCTRLH_WDOGEN | WDOG_STCTRLH_WAITEN | WDOG_STCTRLH_STOPEN); // Enable WDG
+    //WDOG_PRESC = 0; // prescaler
+    if (PMC_REGSC & PMC_REGSC_ACKISO) TEENSY3_LP::wakeSource = (LLWU_F1 | LLWU_F2<<8 | LLWU_F3<<16);
+  }
+#ifdef __cplusplus
+}
+#endif
