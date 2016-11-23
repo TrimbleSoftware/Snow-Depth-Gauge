@@ -17,6 +17,7 @@
            Version 1.6a 29-Sep-2016  Fixed buffer overflow on string operations that was causing Teensy to hang sometimes.
            Version 1.6b 03-Oct-2016  Chunk xBee output into 63 byte chunks to prevent xBee on-board buffer overflow.
            Version 1.6c 20-Nov-2016  Revert code back to compile with Arduino 1.0.6 and Teensyduino 1.20 to try and get wathdog timer working properly.
+           Version 1.6d 22-Nov-2016  Added new command I to display firmware build info.
            
 
  Maxbotix HRXL-Maxsonar MB7354 Teensy 3.1/3.2 TTL interface
@@ -78,7 +79,7 @@ XBee Pin 5 RESET +-----------------+
 #include <LowPower_Teensy3.h> // duff's Teensy 3 low power library https://github.com/duff2013/LowPower_Teensy3
 
 // #define DEBUG 1
-#define SWVER "1.6c 11/20/16"
+#define SWVER "1.6d 11/22/16"
 #define HWVER "2B"
 #define STRINGBUFSIZE 256
 
@@ -101,6 +102,7 @@ XBee Pin 5 RESET +-----------------+
 #define CMD_SET_CALIBRATE 'C'
 #define CMD_GET_DEPTH 'D'
 #define CMD_GET_CALIBRATION 'G'
+#define CMD_GET_BUILDINFO 'I'
 #define CMD_GET_RANGE 'R'
 #define CMD_SET_MANUAL_CALIBRATE 'S'
 #define CMD_GET_CHARGE_STATUS 'T' // get LiPo battery charger status
@@ -501,7 +503,7 @@ void ResetXBee(int resetPin)
   digitalWrite(resetPin, LOW);  
 }
 
-void PrintAbout(HardwareSerial2_LP port)
+void printAbout(HardwareSerial2_LP port)
 {
   char buf[STRINGBUFSIZE] = {ascii_nul};
   memset(buf, ascii_nul, sizeof(buf));
@@ -515,22 +517,28 @@ void PrintAbout(HardwareSerial2_LP port)
   delay(50);
 }
 
-void PrintCommands(HardwareSerial2_LP port)
+void printCommands(HardwareSerial2_LP port)
 {
   delay(50);
   XBeePrintf(port, true, "%s\n", "Available Commands:");
-  XBeePrintf(port, false, "  %s\n", "A - Get version information");
-  XBeePrintf(port, false, "  %s\n", "B - Reboot Teensy CPU and XBee Radio");
+  XBeePrintf(port, false, "  %s\n", "A - Get About version information");
+  XBeePrintf(port, false, "  %s\n", "B - ReBoot Teensy CPU and XBee Radio");
   XBeePrintf(port, false, "  %s\n", "C - Calibrate snow depth sensor at current distance");
-  XBeePrintf(port, false, "  %s\n", "D - Get calibrated snow depth (mm)");
+  XBeePrintf(port, false, "  %s\n", "D - Get calibrated snow Depth (mm)");
   XBeePrintf(port, false, "  %s\n", "G - Get saved calibration value (mm)");
-  XBeePrintf(port, false, "  %s\n", "R - Get snow depth sensor range (mm)");
+  XBeePrintf(port, false, "  %s\n", "I - Get firware build Information");
+  XBeePrintf(port, false, "  %s\n", "R - Get snow depth sensor Range (mm)");
   XBeePrintf(port, false, "  %s\n", "Sxxxx - Set manual calibration distance xxxx (mm)");
-  XBeePrintf(port, false, "  %s\n", "T - Get battery charger status:");
+  XBeePrintf(port, false, "  %s\n", "T - Get battery charger sTatus:");
   XBeePrintf(port, false, "  %s\n", "  2: Done Charging, 1: Charging, 0: Not Charging");
-  XBeePrintf(port, false, "  %s\n", "V - Get battery voltage (100x)");
+  XBeePrintf(port, false, "  %s\n", "V - Get battery Voltage (100x)");
   XBeePrintf(port, false, "  %s\n", "? - List available commands");
   delay(50);
+}
+
+void printBuildInfo(HardwareSerial2_LP port)
+{
+  XBeePrintf(port, false, "Built: %s %s, from file: %s using Arduino: %d\n", __DATE__, __TIME__, __FILE__, ARDUINO);  
 }
 
 void KickDog()
@@ -574,7 +582,7 @@ void setup()
   wdTimer.begin(KickDog, 500000); // kick the dog every 500msec
   Uart2.flush();
   Uart2.clear();
-  PrintAbout(Uart2);
+  printAbout(Uart2);
   blinkLED_BuiltIn(BLINK_LONG, LED_BRIGHT);
 }
 
@@ -607,7 +615,7 @@ void processCommand(void)
     {
       case CMD_GET_ABOUT: // about
       {
-        PrintAbout(Uart2);
+        printAbout(Uart2);
         getSensorInfo(Uart1, Uart2);
         blinkLED_BuiltIn(BLINK_SHORT, LED_DIM);
         break;
@@ -669,7 +677,12 @@ void processCommand(void)
         XBeePrintf(Uart2, true, outputFormat, CMD_GET_CALIBRATION, datum);
         break;
       }
-
+      case CMD_GET_BUILDINFO: // get firmware build info and send out serial
+      {
+        printBuildInfo(Uart2);
+       break; 
+      }
+      
       case CMD_GET_RANGE: // read sensor range and send out serial
       {
         range = getRange(Uart1);
@@ -738,7 +751,7 @@ void processCommand(void)
       }
       case CMD_HELP: // list commands
       {
-        PrintCommands(Uart2);        
+        printCommands(Uart2);        
       }
 #ifdef DEBUG
       default:
@@ -767,7 +780,6 @@ void printResetType()
 #ifdef __cplusplus
 extern "C" {
 #endif
-  //void startup_early_hook() __attribute__ ((weak));
   void startup_early_hook() {
     WDOG_TOVALL = 3000; // The next 2 lines sets the time-out value. This is the value that the watchdog timer compares itself to.
     WDOG_TOVALH = 0;
@@ -778,3 +790,4 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
+
