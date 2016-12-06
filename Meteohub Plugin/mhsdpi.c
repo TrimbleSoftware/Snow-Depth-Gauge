@@ -304,7 +304,7 @@ int main (int argc, char *argv[])
 function bodies
 */
 
-// read sensor vaules into intial ary used for sma smoothing
+// read sensor vaules into intial array used for sma smoothing
 int get_initial_sensor (int *values, int datum, FILE *stream, uint16_t retry_count)
 {
 	int retval = 0;
@@ -416,7 +416,7 @@ void print_firmware_version(FILE *stream, char *logfilename, char *myname)
 		for (j = 0; j < strlen(buf[i]); j++)
 			fprintf(stderr, "%c - 0x%x\n", buf[i][j],  buf[i][j]);;
 #endif
-		buf[i][strlen(buf[i]) - 2] = '\0'; // get rid of CR-LF at end of string
+		buf[i][strlen(buf[i]) - 1] = '\0'; // get rid of CR-LF at end of string
 		writelog(logfilename, myname, buf[i]);
 		free(buf[i]);
 	}
