@@ -18,8 +18,8 @@
            Version 1.6b 03-Oct-2016  Chunk xBee output into 63 byte chunks to prevent xBee on-board buffer overflow.
            Version 1.6c 20-Nov-2016  Revert code back to compile with Arduino 1.0.6 and Teensyduino 1.20 to try and get wathdog timer working properly.
            Version 1.6d 22-Nov-2016  Added new command I to display firmware build info.
+           Version 1.6e 05-Jan-2017  Added code to clear incomming serial data after current command has completed in at attempt to discard bad data that sometime hangs the teensy.
            
-
  Maxbotix HRXL-Maxsonar MB7354 Teensy 3.1/3.2 TTL interface
  
  Hookup:
@@ -72,6 +72,14 @@ XBee Pin 5 RESET +-----------------+
  2                  D
  3                  C
  
+
+Tips on accessing gauge from a Linux host:
+  Use this command line to send commands directly to the gauge:
+    echo -n "V" > /dev/ttyMHsd1 ; cat /dev/ttyMHsd1
+  
+  The tty serial port baud rate has to be sent from the command line to send manual commands:
+    stty -F /dev/ttyMHsd1 38400
+
 */
 
 #include <math.h>
@@ -79,7 +87,7 @@ XBee Pin 5 RESET +-----------------+
 #include <LowPower_Teensy3.h> // duff's Teensy 3 low power library https://github.com/duff2013/LowPower_Teensy3
 
 // #define DEBUG 1
-#define SWVER "1.6d 11/22/16"
+#define SWVER "1.6e 01/05/17"
 #define HWVER "2B"
 #define STRINGBUFSIZE 256
 
@@ -690,7 +698,7 @@ void processCommand(void)
         break;
       }
 
-      case CMD_SET_MANUAL_CALIBRATE : // set manual datum and save into EEPROM, reread and send out serial
+      case CMD_SET_MANUAL_CALIBRATE: // set manual datum and save into EEPROM, reread and send out serial
       {
         char buf[5] = {0,0,0,0,0};
         Uart2.readBytesUntil(CHAR_CR, buf, sizeof(buf));
@@ -751,15 +759,18 @@ void processCommand(void)
       }
       case CMD_HELP: // list commands
       {
-        printCommands(Uart2);        
+        printCommands(Uart2);
+        break;        
       }
-#ifdef DEBUG
       default:
       {
+#ifdef DEBUG
         Serial.printf("\nUnknown commandByte: 0x%0x", commandByte);
-      }
 #endif
+        break;
+      }
     }
+    Uart2.clear();
   }
 }
 
