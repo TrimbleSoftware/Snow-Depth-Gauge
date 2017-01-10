@@ -24,12 +24,13 @@ Modified:	22-Sep-2014 by Fred Trimble ftt@smtcpa.com
 				Ver 1.6 Added reread of sma array when stddev is out of range
 			06-Sept-2015 by Fred Trimble ftt@smtcpa.com
 				Ver 1.7 Added LiPo charger status output for Snow Depth Gauge Version 2B-1.5
-
+			10-Jan-2017 by Fred Trimble ftt@smtcpa.com
+					Ver 1.7a Added code to set tty file to non buffered and added mandentory delay when
 */
 
 //#define DEBUG
 #include "mhsdpi.h"
-#define VERSION "1.7"
+#define VERSION "1.7a"
 
 /*
 main program
@@ -163,6 +164,14 @@ int main (int argc, char *argv[])
 		}
 		return 2;
 	}
+	
+	if(setvbuf(ttyfile, NULL, _IONBF, 0) != 0) // set serial io to non-buffered to prevent delays in transmission
+	{
+		 sprintf(message_buffer, "error setting %s to non-buffered mode", config.device);
+		 writelog(config.log_file_name, argv[0], message_buffer);
+	}
+
+	fflush(ttyfile);
 
 	// restart remote sensor if called for
 	if(config.restart_remote_sensor)
@@ -174,7 +183,11 @@ int main (int argc, char *argv[])
 			
 		if(config.write_log)
 			writelog(config.log_file_name, argv[0], message_buffer);
+			
+		sleep(2*60); // delay to allow sensor to reboot and be ready to accept input
 	}
+	else
+		sleep(30); // minimal delay to make sure sensor is ready
 
 	// log sensor firmware version
 	if(config.write_log)
@@ -289,6 +302,14 @@ int main (int argc, char *argv[])
 				}
 				return 2;
 			}
+
+			if(setvbuf(ttyfile, NULL, _IONBF, 0) != 0) // set serial io to non-buffered to prevent delays in transmission
+			{
+				 sprintf(message_buffer, "error setting %s to non-buffered mode", config.device);
+				 writelog(config.log_file_name, argv[0], message_buffer);
+			}
+
+			fflush(ttyfile);
 		}
 		//read_array(readings, MAXREADINGS, readings_file_name); 
 	}
