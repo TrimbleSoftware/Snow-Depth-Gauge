@@ -85,7 +85,7 @@ int get_configuration(struct config_t *config, char *path)
 		
 		if ((strcmp(token,"READINGS_FILE_NAME")==0) && (strlen(val) != 0))
 		{
-			strcpy(config->log_file_name,val);
+			strcpy(config->readings_file_name,val);
 			continue;
 		}
 		

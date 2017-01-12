@@ -25,7 +25,7 @@ Modified:	22-Sep-2014 by Fred Trimble ftt@smtcpa.com
 			06-Sept-2015 by Fred Trimble ftt@smtcpa.com
 				Ver 1.7 Added LiPo charger status output for Snow Depth Gauge Version 2B-1.5
 			10-Jan-2017 by Fred Trimble ftt@smtcpa.com
-					Ver 1.7a Added code to set tty file to non buffered and added mandentory delay when
+					Ver 1.7a Added code to set tty file to non buffered and added mandentory delay when sensor restart is configed.
 */
 
 //#define DEBUG
