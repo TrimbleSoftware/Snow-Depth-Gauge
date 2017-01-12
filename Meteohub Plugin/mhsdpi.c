@@ -25,7 +25,7 @@ Modified:	22-Sep-2014 by Fred Trimble ftt@smtcpa.com
 			06-Sept-2015 by Fred Trimble ftt@smtcpa.com
 				Ver 1.7 Added LiPo charger status output for Snow Depth Gauge Version 2B-1.5
 			10-Jan-2017 by Fred Trimble ftt@smtcpa.com
-					Ver 1.7a Added code to set tty file to non buffered and added mandentory delay when sensor restart is configed.
+					Ver 1.7a Added code to set tty file to non buffered and added mandentory delay when sensor restart is configed, minor bug fixes for sensor readings file config and writing.
 */
 
 //#define DEBUG
@@ -101,6 +101,7 @@ int main (int argc, char *argv[])
 		{
 		case 'B':
 			config.restart_remote_sensor = true;
+			break;
 		case 'C':
 			config.close_tty_file = true;
 			break;
@@ -213,14 +214,24 @@ int main (int argc, char *argv[])
 			writelog(config.log_file_name, argv[0], message_buffer);
 		}
 	}
-
-	// log sensor datum value
-	if(config.write_log)
+	
+	if(!config.set_auto_datum && !config.set_manual_datum)
 	{
 		datum = get_calibration_value(ttyfile);
-		sprintf(message_buffer,"Datum value: %d", datum);
-		writelog(config.log_file_name, argv[0], message_buffer);
+		if(datum >= 0)
+		{
+			// log sensor datum value
+			if(config.write_log)
+			{
+				sprintf(message_buffer,"Datum value: %d", datum);
+				writelog(config.log_file_name, argv[0], message_buffer);
+			}
+		}
+		else
+			writelog(config.log_file_name, argv[0], "Error getting datum value from sensor");
 	}
+
+
 
 	if(get_initial_sensor (readings, datum, ttyfile, config.retry_count) == 0)
 	{
@@ -265,7 +276,7 @@ int main (int argc, char *argv[])
 
 			snowdepth_sma = (int)(moving_average(readings, MAXREADINGS, snowdepth) + 0.5); // smooth the sensor readings
 
-			write_array(readings, MAXREADINGS, readings_file_name);
+			write_array(readings, MAXREADINGS, config.readings_file_name);
 
 			fprintf(stdout, mh_data_fmt, mh_data_id++, snowdepth_sma * 100);
 			//sprintf(message_buffer,"Snow depth reading: %d", snowdepth);
