@@ -25,12 +25,22 @@ Modified:	22-Sep-2014 by Fred Trimble ftt@smtcpa.com
 			06-Sept-2015 by Fred Trimble ftt@smtcpa.com
 				Ver 1.7 Added LiPo charger status output for Snow Depth Gauge Version 2B-1.5
 			10-Jan-2017 by Fred Trimble ftt@smtcpa.com
-					Ver 1.7a Added code to set tty file to non buffered and added mandentory delay when sensor restart is configed, minor bug fixes for sensor readings file config and writing.
+				Ver 1.7a Added code to set tty file to non buffered and added mandentory delay when sensor restart is configed, minor bug fixes for sensor readings file config and writing.
+			24-Jan-2017 by Fred Trimble ftt@smtcpa.com
+				Ver 2.0 changed i/o to fd non-buffered using poll() and looping to read/write tty data and added retry logic to some sensor reading functions.
+
 */
 
-//#define DEBUG
+// includes
 #include "mhsdpi.h"
-#define VERSION "1.7a"
+
+// defines
+//#define DEBUG
+#define VERSION "2.0"
+#define WAKEUPDELAY 10
+#define GETDEPTHREADINGDELAY 15
+#define TTYWRITETIMEOUT 500
+#define TTYREADTIMEOUT 500
 
 /*
 main program
@@ -51,8 +61,10 @@ int main (int argc, char *argv[])
 	int readings[MAXREADINGS];
 	int new_average = 0;
 	uint32_t seconds_since_midnight = 0;
+	int rc = 0;
 
 	struct config_t config;
+	struct termios oldsettings;
 
 	// set default values for command line/config options
 	config.restart_remote_sensor = false;
@@ -65,21 +77,20 @@ int main (int argc, char *argv[])
 	strcpy(readings_file_name, argv[0]);
 	strcat(readings_file_name, ".dat");
 	strcpy(config.readings_file_name, readings_file_name);
-
 	config.sleep_seconds = 3660; // 1 hr is default sleep time;
 	config.set_auto_datum = false;
 	config.manual_datum = 5000;  // 5000 mm is default mounting datum height of sensor
 	config.set_manual_datum = false;
 	config.stdev_filter = 6;
 	config.retry_count = 10;
-	
-	FILE *ttyfile;
+
+	int ttyfile;
 
 	uint32_t mh_data_id = 0;
 	int i = 0;
 	for(i = 0; i < MAXREADINGS; i++) // initilize readings history array elements to zero
 		readings[i] = 0;
-		
+
 	const char mh_data_fmt[] = "data%d %d\n";
 
 	char *message_buffer;
@@ -89,9 +100,8 @@ int main (int argc, char *argv[])
 
 	// get cofig options
 	if(!get_configuration(&config, config_file_name))
-	{
 		fprintf(stderr,"\nNo readable .conf file found, using values from command line arguments");
-	}
+
 
 	// get command line options, will override values read from .conf file
 	int opt = 0;
@@ -99,32 +109,32 @@ int main (int argc, char *argv[])
 	{
 		switch(opt)
 		{
-		case 'B':
-			config.restart_remote_sensor = true;
-			break;
-		case 'C':
-			config.close_tty_file = true;
-			break;
-		case 'd':
-			strcpy(config.device, optarg);
-			break;
-		case 'D':
-			config.set_auto_datum = true;
-			break;
-		case 'h':
-		case '?':
-			display_usage(argv[0]);
-			break;
-		case 'L':
-			config.write_log = true;
-			break;
-		case 's':
-			config.manual_datum = (uint16_t)atoi(optarg);
-			config.set_manual_datum = true;
-			break;
-		case 't':
-			config.sleep_seconds = (uint16_t)atoi(optarg);
-			break;
+			case 'B':
+				config.restart_remote_sensor = true;
+				break;
+			case 'C':
+				config.close_tty_file = true;
+				break;
+			case 'd':
+				strcpy(config.device, optarg);
+				break;
+			case 'D':
+				config.set_auto_datum = true;
+				break;
+			case 'h':
+			case '?':
+				display_usage(argv[0]);
+				break;
+			case 'L':
+				config.write_log = true;
+				break;
+			case 's':
+				config.manual_datum = (uint16_t)atoi(optarg);
+				config.set_manual_datum = true;
+				break;
+			case 't':
+				config.sleep_seconds = (uint16_t)atoi(optarg);
+				break;
 
 		}
 	}
@@ -137,15 +147,21 @@ int main (int argc, char *argv[])
 		return -2;
 	}
 
+	sprintf(message_buffer, "mhsdpi Version %s - Meteohub Plug-In for snow depth gauge", VERSION);
+	if(config.write_log)
+		writelog(config.log_file_name, argv[0], message_buffer);
+	else
+		fprintf(stderr, "%s.\n", message_buffer);
+
 	if(strlen(config.device) == 0) // can't run when no device is specified
 	{
 		display_usage(argv[0]);
 		return -1;
 	}
 
-	ttyfile = fopen(config.device, "ab+");
+	ttyfile = open(config.device, O_RDWR | O_NOCTTY | O_NONBLOCK);
 
-	if (!isatty(fileno(ttyfile)))
+	if (!isatty(ttyfile))
 	{
 		if(config.write_log)
 		{
@@ -154,8 +170,8 @@ int main (int argc, char *argv[])
 		}
 		return 1;
 	}
-
 	// set tty port
+	tcgetattr(ttyfile, &oldsettings); // save old tty settings
 	if((set_tty_error_code = set_tty_port(ttyfile, config.device, argv[0], config.log_file_name, config.write_log)))
 	{
 		if(config.write_log)
@@ -165,14 +181,8 @@ int main (int argc, char *argv[])
 		}
 		return 2;
 	}
-	
-	if(setvbuf(ttyfile, NULL, _IONBF, 0) != 0) // set serial io to non-buffered to prevent delays in transmission
-	{
-		 sprintf(message_buffer, "error setting %s to non-buffered mode", config.device);
-		 writelog(config.log_file_name, argv[0], message_buffer);
-	}
 
-	fflush(ttyfile);
+	tcflush(ttyfile, TCIOFLUSH);
 
 	// restart remote sensor if called for
 	if(config.restart_remote_sensor)
@@ -181,14 +191,14 @@ int main (int argc, char *argv[])
 			sprintf(message_buffer, "Issued remote restart of sensor command");
 		else
 			sprintf(message_buffer, "Remote restart of sensor failed");
-			
+
 		if(config.write_log)
 			writelog(config.log_file_name, argv[0], message_buffer);
-			
+
 		sleep(2*60); // delay to allow sensor to reboot and be ready to accept input
 	}
 	else
-		sleep(30); // minimal delay to make sure sensor is ready
+		sleep(WAKEUPDELAY); // minimal delay to make sure sensor is ready
 
 	// log sensor firmware version
 	if(config.write_log)
@@ -214,10 +224,10 @@ int main (int argc, char *argv[])
 			writelog(config.log_file_name, argv[0], message_buffer);
 		}
 	}
-	
+
 	if(!config.set_auto_datum && !config.set_manual_datum)
 	{
-		datum = get_calibration_value(ttyfile);
+		datum = get_calibration_value(ttyfile, config.retry_count);
 		if(datum >= 0)
 		{
 			// log sensor datum value
@@ -230,8 +240,6 @@ int main (int argc, char *argv[])
 		else
 			writelog(config.log_file_name, argv[0], "Error getting datum value from sensor");
 	}
-
-
 
 	if(get_initial_sensor (readings, datum, ttyfile, config.retry_count) == 0)
 	{
@@ -247,13 +255,13 @@ int main (int argc, char *argv[])
 		sleep(config.sleep_seconds - (seconds_since_midnight % config.sleep_seconds)); // start polling on an even boundry of the specified polling interval
 	}
 
-	do
+	do // main plug-in loop
 	{
 		mh_data_id = 0;
 
 		snowdepth = get_depth_value(ttyfile, config.retry_count); // read sensor value for snow depth via xBee Explorer on USB
-		batteryVolts = get_battery_voltage(ttyfile); // read sensor value for battery volts via xBee Explorer on USB
-		chargerStatus = get_charger_status(ttyfile); // read LiPo charger status
+		batteryVolts = get_battery_voltage(ttyfile, config.retry_count); // read sensor value for battery volts via xBee Explorer on USB
+		chargerStatus = get_charger_status(ttyfile, config.retry_count); // read LiPo charger status
 
 		if(snowdepth >= 0)
 		{
@@ -295,14 +303,18 @@ int main (int argc, char *argv[])
 		fflush(stdout);
 
 		if(config.close_tty_file) // close tty file
-			fclose(ttyfile);
+		{
+			close(ttyfile);
+			tcsetattr(ttyfile, TCSANOW, &oldsettings); // put old tty port setting back
+		}
 
 		seconds_since_midnight = get_seconds_since_midnight();
 		sleep(config.sleep_seconds - (seconds_since_midnight % config.sleep_seconds)); // sleep just the right amount to keep on boundry
 
 		if(config.close_tty_file) // open tty back up
 		{
-			ttyfile = fopen(config.device, "ab+");
+			tcgetattr(ttyfile, &oldsettings); // save old tty settings
+			ttyfile = open(config.device, O_RDWR | O_NOCTTY | O_NONBLOCK);
 			// set tty port
 			if((set_tty_error_code = set_tty_port(ttyfile, config.device, argv[0], config.log_file_name, config.write_log)))
 			{
@@ -311,22 +323,16 @@ int main (int argc, char *argv[])
 					sprintf(message_buffer,"Error setting serial port: %d", set_tty_error_code);
 					writelog(config.log_file_name, argv[0], message_buffer);
 				}
-				return 2;
+				rc = 2;
 			}
-
-			if(setvbuf(ttyfile, NULL, _IONBF, 0) != 0) // set serial io to non-buffered to prevent delays in transmission
-			{
-				 sprintf(message_buffer, "error setting %s to non-buffered mode", config.device);
-				 writelog(config.log_file_name, argv[0], message_buffer);
-			}
-
-			fflush(ttyfile);
+			tcflush(ttyfile, TCIOFLUSH);
 		}
 		//read_array(readings, MAXREADINGS, readings_file_name); 
 	}
-	while(!feof(ttyfile));
+	while(rc >= 0);
 
-	fclose(ttyfile);
+	close(ttyfile);
+	tcsetattr(ttyfile, TCSANOW, &oldsettings); // put old tty port setting back
 	free(message_buffer);
 
 	return 0;
@@ -337,17 +343,20 @@ function bodies
 */
 
 // read sensor vaules into intial array used for sma smoothing
-int get_initial_sensor (int *values, int datum, FILE *stream, uint16_t retry_count)
+int get_initial_sensor (int *values, int datum, int fd, uint16_t retry_count)
 {
 	int retval = 0;
 	int i = 0;
 	for(i = 0; i < MAXREADINGS; i++) // initilize the sma values array with current sensor readings
 	{
-		values[i] = get_depth_value(stream, retry_count);
-		if(values[i] == datum || values[i] < 0) // don't use error values
-			values[i] = average(values, i);
-		else
-			retval = 1;
+		values[i] = get_depth_value(fd, retry_count);
+		if(values[i] >= 0)
+		{
+			if(values[i] == datum || values[i] < 0) // don't use error values
+				values[i] = average(values, i); // use average instead
+			else
+				retval = 1;
+		}
 	}
 	return retval;
 }
@@ -431,59 +440,74 @@ float standard_deviation(const int *values, int n)
 	return sqrt(sum / n);
 }
 // read Snow Depth Sensor firmware version, 7 lines
-void print_firmware_version(FILE *stream, char *logfilename, char *myname)
+void print_firmware_version(int fd, char *logfilename, char *myname)
 {
-	char *buf[7];
+#define BUFSIZE 100
+	char buf[BUFSIZE];
 	int i = 0;
-	for(i = 0; i < 7; i++)
-		buf[i] = malloc(80 * sizeof(char));
-	fflush(stream);
-	fputc(CMD_GET_ABOUT, stream);
-	sleep(10); // inital delay to let XBee catch-up
+	
+	tcflush(fd, TCIOFLUSH);
+	fdputc_poll(CMD_GET_ABOUT, fd, TTYWRITETIMEOUT);
+	sleep(WAKEUPDELAY); // inital delay to let XBee catch-up
 	for(i = 0; i < 7; i++)
 	{
-		fgets(buf[i], malloc_usable_size(buf[i]), stream);
+		memset(buf, NUL, sizeof(buf));
+		fdgets_poll(buf, sizeof(buf), fd, TTYREADTIMEOUT);
 #ifdef DEBUG
 		int j = 0;
-		for (j = 0; j < strlen(buf[i]); j++)
-			fprintf(stderr, "%c - 0x%x\n", buf[i][j],  buf[i][j]);;
+		for (j = 0; j < strlen(buf); j++)
+			fprintf(stderr, "%c - 0x%x\n", buf[j],  buf[j]);;
 #endif
-		buf[i][strlen(buf[i]) - 1] = '\0'; // get rid of CR-LF at end of string
-		writelog(logfilename, myname, buf[i]);
-		free(buf[i]);
+		if(strlen(buf) > 0)
+		{
+			buf[strlen(buf) - 1] = '\0'; // get rid of CR-LF at end of string
+			writelog(logfilename, myname, buf);
+		}
 	}
 }
 
 // read Snow Depth Sensor calibration height value
-int get_calibration_value(FILE *stream)
+int get_calibration_value(int fd, uint16_t retry_count)
 {
 	char message_buffer[7];
 	int retvalue = -1;
-	fflush(stream);
-	fputc(CMD_GET_CALIBRATION, stream);
-	fgets(message_buffer, sizeof(message_buffer), stream);
+	do
+	{
+		tcflush(fd, TCIOFLUSH);
+		fdputc_poll(CMD_GET_CALIBRATION, fd, TTYWRITETIMEOUT);
+		memset(message_buffer, NUL, sizeof(message_buffer));
+		sleep(WAKEUPDELAY); // inital delay to let XBee catch-up
+		fdgets_poll(message_buffer, sizeof(message_buffer), fd, TTYREADTIMEOUT);
 #ifdef DEBUG
 		int i = 0;
 		for (i = 0; i < strlen(message_buffer); i++)
-			fprintf(stderr, "%c - 0x%x\n", message_buffer[i],  message_buffer[i]);;
+		fprintf(stderr, "%c - 0x%x\n", message_buffer[i],  message_buffer[i]);;
 #endif
-	if(message_buffer[0] == CMD_GET_CALIBRATION && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
-		retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
+		if(message_buffer[0] == CMD_GET_CALIBRATION && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
+			retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
+		else
+			retvalue = -1;
+
+		retry_count--;
+	}
+	while(retry_count >= 0 && retvalue < 0);
 
 	return retvalue;
 }
 
 // set auto Snow Depth Sensor calibration height value
-int set_calibration_value(FILE *stream, uint16_t retry_count)
+int set_calibration_value(int fd, uint16_t retry_count)
 {
 	char message_buffer[7];
 	int retvalue = -1;
 
 	do
 	{
-		fflush(stream);
-		fputc(CMD_SET_CALIBRATE, stream);
-		fgets(message_buffer, sizeof(message_buffer), stream);
+		tcflush(fd, TCIOFLUSH);
+		fdputc_poll(CMD_SET_CALIBRATE, fd, TTYWRITETIMEOUT);
+		memset(message_buffer, NUL, sizeof(message_buffer));
+		sleep(WAKEUPDELAY); // inital delay to let XBee catch-up
+		fdgets_poll(message_buffer, sizeof(message_buffer), fd, TTYREADTIMEOUT);
 #ifdef DEBUG
 		int i = 0;
 		for (i = 0; i < strlen(message_buffer); i++)
@@ -504,17 +528,21 @@ int set_calibration_value(FILE *stream, uint16_t retry_count)
 }
 
 // manually set Snow Depth Sensor calibration value datum (aka mounting height above terra firma)
-int set_manual_calibration_value(FILE *stream, int value)
+int set_manual_calibration_value(int fd, int value)
 {
 	char message_buffer[7];
 	char command_buffer[7];
 	int retvalue = -1;
-	fflush(stream);
+
+	tcflush(fd, TCIOFLUSH);
+	memset(command_buffer, NUL, sizeof(command_buffer));
 	sprintf(command_buffer, "%c%04d\n", CMD_SET_MANUAL_CALIBRATE, value);
-	fputs(command_buffer, stream);
-	fflush(stream);
-	fputc(CMD_SET_MANUAL_CALIBRATE, stream);
-	fgets(message_buffer, sizeof(message_buffer), stream);
+	fdputs_poll(command_buffer, fd, TTYWRITETIMEOUT);
+	fsync(fd);
+	fdputc_poll(CMD_SET_MANUAL_CALIBRATE, fd, TTYWRITETIMEOUT);
+	memset(message_buffer, NUL, sizeof(message_buffer));
+	sleep(WAKEUPDELAY); // inital delay to let XBee catch-up
+	fdgets_poll(message_buffer, sizeof(message_buffer), fd, TTYREADTIMEOUT);
 #ifdef DEBUG
 	int i = 0;
 	for (i = 0; i < strlen(command_buffer); i++)
@@ -529,15 +557,17 @@ int set_manual_calibration_value(FILE *stream, int value)
 }
 
 // read Snow Depth Sensor snow depth value
-int get_depth_value(FILE *stream, uint16_t retry_count)
+int get_depth_value(int fd, int retry_count)
 {
 	char message_buffer[7];
 	int retvalue = -1;
 	do
 	{
-		fflush(stream);
-		fputc(CMD_GET_DEPTH, stream);
-		fgets(message_buffer, sizeof(message_buffer), stream);
+		tcflush(fd, TCIOFLUSH);
+		fdputc_poll(CMD_GET_DEPTH, fd, TTYWRITETIMEOUT);
+		memset(message_buffer, NUL, sizeof(message_buffer));
+		sleep(GETDEPTHREADINGDELAY); // inital delay to let XBee catch-up
+		fdgets_poll(message_buffer, sizeof(message_buffer), fd, TTYREADTIMEOUT);
 		if(message_buffer[0] == CMD_GET_DEPTH && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
 		{
 			retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
@@ -555,15 +585,17 @@ int get_depth_value(FILE *stream, uint16_t retry_count)
 }
 
 // read Snow Depth Sensor range value
-int get_range_value(FILE *stream, uint16_t retry_count)
+int get_range_value(int fd, uint16_t retry_count)
 {
 	char message_buffer[7];
 	int retvalue = -1;
 	do
 	{
-		fflush(stream);
-		fputc(CMD_GET_RANGE, stream);
-		fgets(message_buffer, sizeof(message_buffer), stream);
+		tcflush(fd, TCIOFLUSH);
+		fdputc_poll(CMD_GET_RANGE, fd, TTYWRITETIMEOUT);
+		memset(message_buffer, NUL, sizeof(message_buffer));
+		sleep(WAKEUPDELAY); // inital delay to let XBee catch-up
+		fdgets_poll(message_buffer, sizeof(message_buffer), fd, TTYREADTIMEOUT);
 		if(message_buffer[0] == CMD_GET_RANGE && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
 			retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
 		else if(message_buffer[0] == CMD_GET_RANGE && message_buffer[1] == '-' && (message_buffer[2] >= '0' && message_buffer[2] <= '9'))
@@ -578,70 +610,64 @@ int get_range_value(FILE *stream, uint16_t retry_count)
 	return retvalue;
 }
 // read remote battery voltage
-int get_battery_voltage(FILE *stream)
+int get_battery_voltage(int fd, int retry_count)
 {
 	char message_buffer[7];
 	int retvalue = -1;
-	fflush(stream);
-	fputc(CMD_GET_VOLTAGE, stream);
-	fgets(message_buffer, sizeof(message_buffer), stream);
-	if(message_buffer[0] == CMD_GET_VOLTAGE && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
-		retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
-	else
-		retvalue = -1;
+	do
+	{
+		tcflush(fd, TCIOFLUSH);
+		fdputc_poll(CMD_GET_VOLTAGE, fd, TTYWRITETIMEOUT);
+		memset(message_buffer, NUL, sizeof(message_buffer));
+		sleep(WAKEUPDELAY); // inital delay to let XBee catch-up
+		fdgets_poll(message_buffer, sizeof(message_buffer), fd, TTYREADTIMEOUT);
+		if(message_buffer[0] == CMD_GET_VOLTAGE && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
+			retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
+		else
+			retvalue = -1;
 
+		retry_count--;
+	}
+	while(retry_count >= 0 && retvalue < 0);
+	
 	return retvalue;
 }
 // read LiPo batter charger status from remote sensor
-int get_charger_status(FILE *stream)
+int get_charger_status(int fd, int retry_count)
 {
 	char message_buffer[7];
 	int retvalue = -1;
-	fflush(stream);
-	fputc(CMD_GET_CHARGER_STATUS, stream);
-	fgets(message_buffer, sizeof(message_buffer), stream);
-	if(message_buffer[0] == CMD_GET_CHARGER_STATUS && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
-		retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
-	else
-		retvalue = -1;
+	do
+	{	
+		tcflush(fd, TCIOFLUSH);
+		fdputc_poll(CMD_GET_CHARGER_STATUS, fd, TTYWRITETIMEOUT);
+		memset(message_buffer, NUL, sizeof(message_buffer));
+		sleep(WAKEUPDELAY); // inital delay to let XBee catch-up
+		fdgets_poll(message_buffer, sizeof(message_buffer), fd, TTYREADTIMEOUT);
+		if(message_buffer[0] == CMD_GET_CHARGER_STATUS && (message_buffer[1] >= '0' && message_buffer[1] <= '9'))
+			retvalue = ((message_buffer[1] - '0') * 1000) + ((message_buffer[2] - '0') * 100) + ((message_buffer[3] - '0') * 10) + (message_buffer[4] - '0');
+		else
+			retvalue = -1;
+
+		retry_count--;
+	}
+	while(retry_count >= 0 && retvalue < 0);
 
 	return retvalue;
 }
 // send command to restart CPU on remote Teensey 3.1 microcontroller and check for boot message
-boolean restart_sensor(FILE *stream)
-{
-	boolean retvalue = false;
-//	char *buf[1];
-//	int i = 0;
-//	for(i = 0; i < 1; i++)
-//		buf[i] = malloc(80 * sizeof(char));
 
-	fflush(stream);
-	fputc(CMD_RESTART, stream);
-	fflush(stream);
-	sleep(10); // delay to allow XBee delay + Teensy restart
-	retvalue = true;
-//	for(i = 0; i < 1; i++)
-//	{
-//		fgets(buf[i], malloc_usable_size(buf[i]), stream);
-//#ifdef DEBUG		
-//		int j = 0;
-//		for (j = 0; j < strlen(buf[i]); j++)
-//			fprintf(stderr, "%c - 0x%x\n", buf[i][j],  buf[i][j]);;
-//#endif			
-//		if(buf[i][0] == 'T') // got about message?
-//		{
-//			retvalue = true;
-//			break;
-//		}
-//		free(buf[i]);
-//	}
-	fflush(stream);
+boolean restart_sensor(int fd)
+{
+	boolean retvalue = true;
+	tcflush(fd, TCIOFLUSH);
+	fdputc_poll(CMD_RESTART, fd, TTYWRITETIMEOUT);
+
 	return retvalue;
 }
 
 // set serial port to communicate with Snow Depth sensor via xBee in transparent mode at 34800 baud
-int set_tty_port(FILE *ttyfile, char *device, char* myname, char *log_file_name, boolean writetolog)
+int set_tty_port(int ttyfile, char *device, char* myname, char *log_file_name, boolean writetolog)
 {
 	struct termios config;
 	char *message_buffer;
@@ -653,7 +679,7 @@ int set_tty_port(FILE *ttyfile, char *device, char* myname, char *log_file_name,
 		return -1;
 	}
 
-	if (tcgetattr(fileno(ttyfile), &config) < 0)
+	if (tcgetattr(ttyfile, &config) < 0)
 	{
 		if(writetolog)
 		{
@@ -664,18 +690,18 @@ int set_tty_port(FILE *ttyfile, char *device, char* myname, char *log_file_name,
 	}
 
 	// set serial port to 38400 baud, 8 bits, no parity
-	config.c_iflag = 0;
+	config.c_iflag = (IGNPAR | IGNBRK | ICRNL);
 	config.c_oflag = 0;
-	config.c_cflag = CLOCAL | CREAD;
+	config.c_cflag = (CREAD | CLOCAL | CS8);
 	config.c_lflag = 0;
 	cfmakeraw(&config);
 	cfsetispeed(&config,B38400);
 	cfsetospeed(&config,B38400);
-	config.c_cc[VMIN] = 1;
+	config.c_cc[VMIN] = 0;
 	config.c_cc[VTIME] = 0;
+	tcflush(ttyfile, TCIOFLUSH);
 
-
-	if(tcsetattr(fileno(ttyfile), TCSANOW, &config) < 0)
+	if(tcsetattr(ttyfile, TCSANOW, &config) < 0)
 	{
 		if(writetolog)
 		{
@@ -686,11 +712,6 @@ int set_tty_port(FILE *ttyfile, char *device, char* myname, char *log_file_name,
 	}
 	else
 	{
-//		if(writetolog)
-//		{
-//			sprintf(message_buffer, "Set serial port on device %s to 38400 Baud", device);
-//			writelog(log_file_name, myname, message_buffer);
-//		}
 		return 0;
 	}
 }
