@@ -3,9 +3,6 @@
 	mhsdpi.h
 
 */
-/*
-	includes
-*/
 #include <stdlib.h>
 #include <termios.h>
 #include <stdio.h>
@@ -20,14 +17,12 @@
 #include <malloc.h>
 #include <math.h>
 
-#include "fdget.h" // fd based lib that uses poll() for tty  I/O
 /*
 	defines
 */
 #define true 1
 #define false 0
-///#define MAXREADINGS 10 // number of readings to use for moving average smoothing
-#define MAXREADINGS 5 // number of readings to use for moving average smoothing
+#define MAXREADINGS 10 // number of readings to use for moving average smoothing
 
 // commands
 #define CMD_GET_ABOUT 'A'
@@ -83,23 +78,23 @@ struct config_t
 /*
 	function prototypes
 */
-int get_initial_sensor (int *values, int datum, int fd, uint16_t retry_count);
+int get_initial_sensor (int *values, int datum, FILE *stream, uint16_t retry_count);
 int write_array(const int *values, int n, char *filename);
 int read_array(int *values,int n, char *filename);
 float moving_average(int *values, int n, int new_value);
 float average(const int *values, int n);
 float standard_deviation(const int *values, int n);
-void print_firmware_version(int fd, char *logfilename, char *myname);
-int get_calibration_value(int fd, uint16_t retry_count);
-int set_calibration_value(int fd, uint16_t retry_count);
-int set_manual_calibration_value(int fd, int value);
-int get_depth_value(int fd, int retry_count);
-int get_range_value(int fd, uint16_t retry_count);
-int get_battery_voltage(int fd, int retry_count);
-int get_charger_status(int fd, int retry_count);
-boolean restart_sensor(int fd);
+void print_firmware_version(FILE *stream, char *logfilename, char *myname);
+int get_calibration_value(FILE *stream);
+int set_calibration_value(FILE *stream, uint16_t retry_count);
+int set_manual_calibration_value(FILE *stream, int value);
+int get_depth_value(FILE *stream, uint16_t retry_count);
+int get_range_value(FILE *stream, uint16_t retry_count);
+int get_battery_voltage(FILE *stream);
+int get_charger_status(FILE *stream);
+boolean restart_sensor(FILE *stream);
 
-int set_tty_port(int ttyfile, char *device, char* myname, char *log_file_name, boolean writetolog);
+int set_tty_port(FILE *ttyfile, char *device, char* myname, char *log_file_name, boolean writetolog);
 uint32_t get_seconds_since_midnight (void);
 void writelog (char *logfilename, char *process_name, char *message);
 void display_usage(char *myname);
