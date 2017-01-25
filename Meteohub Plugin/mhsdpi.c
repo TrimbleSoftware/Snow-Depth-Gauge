@@ -160,7 +160,8 @@ int main (int argc, char *argv[])
 	}
 
 	ttyfile = open(config.device, O_RDWR | O_NOCTTY | O_NONBLOCK);
-
+	tcgetattr(ttyfile, &oldsettings); // save old tty settings
+	
 	if (!isatty(ttyfile))
 	{
 		if(config.write_log)
@@ -171,7 +172,6 @@ int main (int argc, char *argv[])
 		return 1;
 	}
 	// set tty port
-	tcgetattr(ttyfile, &oldsettings); // save old tty settings
 	if((set_tty_error_code = set_tty_port(ttyfile, config.device, argv[0], config.log_file_name, config.write_log)))
 	{
 		if(config.write_log)
@@ -304,8 +304,8 @@ int main (int argc, char *argv[])
 
 		if(config.close_tty_file) // close tty file
 		{
-			close(ttyfile);
 			tcsetattr(ttyfile, TCSANOW, &oldsettings); // put old tty port setting back
+			close(ttyfile);
 		}
 
 		seconds_since_midnight = get_seconds_since_midnight();
@@ -313,8 +313,8 @@ int main (int argc, char *argv[])
 
 		if(config.close_tty_file) // open tty back up
 		{
-			tcgetattr(ttyfile, &oldsettings); // save old tty settings
 			ttyfile = open(config.device, O_RDWR | O_NOCTTY | O_NONBLOCK);
+			tcgetattr(ttyfile, &oldsettings); // save old tty settings
 			// set tty port
 			if((set_tty_error_code = set_tty_port(ttyfile, config.device, argv[0], config.log_file_name, config.write_log)))
 			{
@@ -331,8 +331,8 @@ int main (int argc, char *argv[])
 	}
 	while(rc >= 0);
 
-	close(ttyfile);
 	tcsetattr(ttyfile, TCSANOW, &oldsettings); // put old tty port setting back
+	close(ttyfile);
 	free(message_buffer);
 
 	return 0;
