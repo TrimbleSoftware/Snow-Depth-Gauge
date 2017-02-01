@@ -28,7 +28,9 @@ Modified:	22-Sep-2014 by Fred Trimble ftt@smtcpa.com
 				Ver 1.7a Added code to set tty file to non buffered and added mandentory delay when sensor restart is configed, minor bug fixes for sensor readings file config and writing.
 			24-Jan-2017 by Fred Trimble ftt@smtcpa.com
 				Ver 2.0 changed i/o to fd non-buffered using poll() and looping to read/write tty data and added retry logic to some sensor reading functions.
-
+			31-Jan-2017 by Fred Trimble ftt@smtcpa.com
+				Ver 2.0a added main loop exit via return codes propigated through sensor readings. To allow meteohub to restart plugin when comm errors occure.
+				
 */
 
 // includes
@@ -36,7 +38,7 @@ Modified:	22-Sep-2014 by Fred Trimble ftt@smtcpa.com
 
 // defines
 //#define DEBUG
-#define VERSION "2.0"
+#define VERSION "2.0a"
 #define WAKEUPDELAY 10
 #define GETDEPTHREADINGDELAY 15
 #define TTYWRITETIMEOUT 500
@@ -287,7 +289,8 @@ int main (int argc, char *argv[])
 			write_array(readings, MAXREADINGS, config.readings_file_name);
 
 			fprintf(stdout, mh_data_fmt, mh_data_id++, snowdepth_sma * 100);
-			//sprintf(message_buffer,"Snow depth reading: %d", snowdepth);
+			rc = 0;
+			//sprintf(message_buffer,"Snow depth reading: %d", snowdepth_sma);
 			//writelog(config.log_file_name, argv[0], message_buffer);
 		}
 		else
@@ -295,10 +298,34 @@ int main (int argc, char *argv[])
 			sprintf(message_buffer,"Error reading raw snow depth: %d", snowdepth);
 			writelog(config.log_file_name, argv[0], message_buffer);
 			mh_data_id++;
+			rc = -2;
 		}
 
-		fprintf(stdout, mh_data_fmt, mh_data_id++, batteryVolts); // battery voltage is already *100 comming from sensor
-		fprintf(stdout, mh_data_fmt, mh_data_id++, chargerStatus * 100);
+		if(batteryVolts >= 0)
+		{
+			fprintf(stdout, mh_data_fmt, mh_data_id++, batteryVolts); // battery voltage is already *100 comming from sensor
+			rc = 0;
+		}
+		else
+		{
+			sprintf(message_buffer,"Error reading raw battery volts: %d", batteryVolts);
+			writelog(config.log_file_name, argv[0], message_buffer);
+			mh_data_id++;
+			rc = -3;
+		}
+
+		if(chargerStatus >= 0)
+		{
+			fprintf(stdout, mh_data_fmt, mh_data_id++, chargerStatus * 100);
+			rc = 0;
+		}
+		else
+		{
+			sprintf(message_buffer,"Error reading raw charger status: %d", chargerStatus);
+			writelog(config.log_file_name, argv[0], message_buffer);
+			mh_data_id++;
+			rc = -4;
+		}
 
 		fflush(stdout);
 
@@ -323,8 +350,11 @@ int main (int argc, char *argv[])
 					sprintf(message_buffer,"Error setting serial port: %d", set_tty_error_code);
 					writelog(config.log_file_name, argv[0], message_buffer);
 				}
-				rc = 2;
+				rc = -1;
 			}
+			else
+				rc = 0;
+
 			tcflush(ttyfile, TCIOFLUSH);
 		}
 		//read_array(readings, MAXREADINGS, readings_file_name); 
@@ -335,7 +365,7 @@ int main (int argc, char *argv[])
 	close(ttyfile);
 	free(message_buffer);
 
-	return 0;
+	return rc;
 }
 
 /*
@@ -422,6 +452,7 @@ float average(const int *values, int n)
 
 	return(sum / n);
 }
+
 // calculate standard deviation of an array of n integar values
 // used to filter out outlyer readings from snow depth sensor
 float standard_deviation(const int *values, int n)
@@ -439,6 +470,7 @@ float standard_deviation(const int *values, int n)
 
 	return sqrt(sum / n);
 }
+
 // read Snow Depth Sensor firmware version, 7 lines
 void print_firmware_version(int fd, char *logfilename, char *myname)
 {
@@ -609,6 +641,7 @@ int get_range_value(int fd, uint16_t retry_count)
 
 	return retvalue;
 }
+
 // read remote battery voltage
 int get_battery_voltage(int fd, int retry_count)
 {
@@ -632,6 +665,7 @@ int get_battery_voltage(int fd, int retry_count)
 	
 	return retvalue;
 }
+
 // read LiPo batter charger status from remote sensor
 int get_charger_status(int fd, int retry_count)
 {
@@ -655,8 +689,8 @@ int get_charger_status(int fd, int retry_count)
 
 	return retvalue;
 }
-// send command to restart CPU on remote Teensey 3.1 microcontroller and check for boot message
 
+// send command to restart CPU on remote Teensey 3.1/3.2 microcontroller
 boolean restart_sensor(int fd)
 {
 	boolean retvalue = true;
@@ -697,7 +731,7 @@ int set_tty_port(int ttyfile, char *device, char* myname, char *log_file_name, b
 	cfmakeraw(&config);
 	cfsetispeed(&config,B38400);
 	cfsetospeed(&config,B38400);
-	config.c_cc[VMIN] = 0;
+	config.c_cc[VMIN] = 0; // non-blocking read
 	config.c_cc[VTIME] = 0;
 	tcflush(ttyfile, TCIOFLUSH);
 
@@ -747,6 +781,7 @@ void writelog (char *logfilename, char *process_name, char *message)
 	fclose(stream);
 }
 
+// display command line usage parameters
 void display_usage(char *myname)
 {
 	fprintf(stderr, "mhsdpi Version %s - Meteohub Plug-In for snow depth gauge.\n", VERSION);
