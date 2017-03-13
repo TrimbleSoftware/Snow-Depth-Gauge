@@ -30,7 +30,9 @@ Modified:	22-Sep-2014 by Fred Trimble ftt@smtcpa.com
 				Ver 2.0 changed i/o to fd non-buffered using poll() and looping to read/write tty data and added retry logic to some sensor reading functions.
 			31-Jan-2017 by Fred Trimble ftt@smtcpa.com
 				Ver 2.0a added main loop exit via return codes propigated through sensor readings. To allow meteohub to restart plugin when comm errors occure.
-				
+			18-Feb-2017 by Fred Trimble ftt@smtcpa.com
+				Ver 2.0b bug fixes in avarage amd moving average functions and initial sensor readings functions.
+
 */
 
 // includes
@@ -38,7 +40,7 @@ Modified:	22-Sep-2014 by Fred Trimble ftt@smtcpa.com
 
 // defines
 //#define DEBUG
-#define VERSION "2.0a"
+#define VERSION "2.0b"
 #define WAKEUPDELAY 10
 #define GETDEPTHREADINGDELAY 15
 #define TTYWRITETIMEOUT 500
@@ -244,9 +246,9 @@ int main (int argc, char *argv[])
 	}
 
 	if(get_initial_sensor (readings, datum, ttyfile, config.retry_count) == 0)
-	{
 		writelog(config.log_file_name, argv[0], "Error getting initial sensor values");
-	}
+	else
+		write_array(readings, MAXREADINGS, config.readings_file_name);
 
 	seconds_since_midnight = get_seconds_since_midnight();
 
@@ -281,6 +283,7 @@ int main (int argc, char *argv[])
 				}
 				new_average = (int)(average(readings, MAXREADINGS) + 0.5);
 				sprintf(message_buffer,"Snow depth: %d reading out of range per filtering rules. Using new average: %d", snowdepth, new_average);
+				writelog(config.log_file_name, argv[0],message_buffer);
 				snowdepth = new_average; // use the prior readings average
 			}
 
@@ -375,17 +378,21 @@ function bodies
 // read sensor vaules into intial array used for sma smoothing
 int get_initial_sensor (int *values, int datum, int fd, uint16_t retry_count)
 {
-	int retval = 0;
+	int retval = 1;
 	int i = 0;
+	int depth = 0;
 	for(i = 0; i < MAXREADINGS; i++) // initilize the sma values array with current sensor readings
 	{
-		values[i] = get_depth_value(fd, retry_count);
-		if(values[i] >= 0)
+		depth = get_depth_value(fd, retry_count);
+		if(depth >= 0 && depth != datum) // don't use error values
+			values[i] = depth;
+		else
 		{
-			if(values[i] == datum || values[i] < 0) // don't use error values
-				values[i] = average(values, i); // use average instead
-			else
-				retval = 1;
+			depth = (int)(average(values, i + 1) + 0.5); // backfill sensor reading errors with average of prior readings
+			if(depth >= 0)
+				values[i] = depth;
+			else // error
+				retval = 0;
 		}
 	}
 	return retval;
@@ -430,17 +437,12 @@ int read_array(int *values, int n, char *filename)
 float moving_average(int *values, int n, int new_value)
 {
 	int i = 0;;
-	int sum = 0;
 	for(i = 1; i < n; i++) // move old values over 1 slot
-	{
 		values[i - 1] = values[i];
-	}
+
 	values[n - 1] = new_value; // place new value into last slot
-	for(i = 0; i < n; i++) // sum of old values & new value
-	{
-		sum += values[i];
-	}
-	return(sum / n); // average of old values & new value
+
+	return(average(values, n)); // average of old values & new value
 }
 
 float average(const int *values, int n)
@@ -459,14 +461,12 @@ float standard_deviation(const int *values, int n)
 {
 	int i = 0;
 	float sum = 0;
-	float average;
+	float avg;
+
+	avg = average(values, n);
 
 	for(i = 0; i < n; i++)
-		sum += values[i];
-	average = sum / n;
-	sum = 0;
-	for(i = 0; i < n; i++)
-		sum += (values[i] - average) * (values[i] - average);
+		sum += (values[i] - avg) * (values[i] - avg);
 
 	return sqrt(sum / n);
 }
