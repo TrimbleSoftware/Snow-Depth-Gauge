@@ -1,3 +1,4 @@
+
 /*
 
  Teensy 3.1/3.2 sketch that implements a snow depth gauge for use with XBee wireless communication with meteohub to log
@@ -19,6 +20,7 @@
            Version 1.6c 20-Nov-2016  Revert code back to compile with Arduino 1.0.6 and Teensyduino 1.20 to try and get wathdog timer working properly.
            Version 1.6d 22-Nov-2016  Added new command I to display firmware build info.
            Version 1.6e 05-Jan-2017  Added code to clear incomming serial data after current command has completed in at attempt to discard bad data that sometime hangs the teensy.
+           Version 1.7a 20-Mar-2017  Added new command N to read XBee RSSI from pin 6 using PWM and display as relative signal strength percentage.
            
  Maxbotix HRXL-Maxsonar MB7354 Teensy 3.1/3.2 TTL interface
  
@@ -87,8 +89,8 @@ Tips on accessing gauge from a Linux host:
 #include <LowPower_Teensy3.h> // duff's Teensy 3 low power library https://github.com/duff2013/LowPower_Teensy3
 
 // #define DEBUG 1
-#define SWVER "1.6e 01/05/17"
-#define HWVER "2B"
+#define SWVER "1.7a 03/16/17"
+#define HWVER "2D"
 #define STRINGBUFSIZE 256
 
 #define ABOUT "Trimble Ultrasonic Wireless Snow Depth Gauge - Ver"
@@ -111,6 +113,7 @@ Tips on accessing gauge from a Linux host:
 #define CMD_GET_DEPTH 'D'
 #define CMD_GET_CALIBRATION 'G'
 #define CMD_GET_BUILDINFO 'I'
+#define CMD_GET_RSSI 'N' // XBee signal RSSI
 #define CMD_GET_RANGE 'R'
 #define CMD_SET_MANUAL_CALIBRATE 'S'
 #define CMD_GET_CHARGE_STATUS 'T' // get LiPo battery charger status
@@ -131,6 +134,7 @@ Tips on accessing gauge from a Linux host:
 #define XBEERESETPIN       21 // pin to drive base of NPN transistor to pull low to cause XBee module to reset
 #define XBEESLEEPPIN       17 // pin to control XBee wake/sleep via pin 9 on the xBee
 #define XBEEAWAKEPIN       16 // pin to detect if XBee is awake
+#define XBEERSSIPIN        20 // pin to read PWM signal output on XBee pin 6
 #define DONE_CHARGING_PIN  2  // pin to test if Adafruit solar charger is done charging
 #define STILL_CHARGING_PIN 3  // pin to test if Adafruit solar charger is still charging
 #define ADCPIN      A0
@@ -170,7 +174,6 @@ HardwareSerial2_LP Uart2 = HardwareSerial2_LP(); // RX2/TX2 for XBee
 const char ascii_nul = '\0';
 const char ascii_0 = '0';
 const char ascii_9 = '9';
-
 const char outputFormat[] = "%c%04.4d\n";
 
 IntervalTimer wdTimer;
@@ -433,7 +436,7 @@ int mode(int *data, int count)
 }
 
 // read ADC to get battery volts via voltage divider to scale 4.2 VDC to 3.3 VDC range needed by Teensy ADC
-float getVolts ()
+float getVolts()
 {
   /*
   
@@ -499,6 +502,26 @@ float getVolts ()
   return (vRef / adcSteps) * (vIn / vOut) * adcValue;
 }
 
+// get PWM percentage (high period / total period) 
+float getRssi(int rssiPin)
+{
+#define RSSITOTALPERIOD 64.0  
+  int i = 0;
+  lp.CPU(TWENTYFOUR_MHZ);
+  unsigned int rssiDurHigh  = 0;
+  
+  for(i = 0; i < 10; i++) // read multiple samples
+    rssiDurHigh += pulseIn(rssiPin, HIGH, 200);
+    
+  lp.CPU(TWO_MHZ);
+  rssiDurHigh = rssiDurHigh / i;
+#ifdef DEBUG  
+  XBeePrintf(Uart2, false, "Raw rssiDurHigh: %d\n", rssiDurHigh);
+#endif
+  // duration of 64 microseconds is 100% signal strength for XBee series 1
+  return rssiDurHigh / RSSITOTALPERIOD; // PWM percentage
+}
+
 void ResetXBee(int resetPin)
 {
   digitalWrite(resetPin, HIGH);
@@ -535,6 +558,7 @@ void printCommands(HardwareSerial2_LP port)
   XBeePrintf(port, false, "  %s\n", "D - Get calibrated snow Depth (mm)");
   XBeePrintf(port, false, "  %s\n", "G - Get saved calibration value (mm)");
   XBeePrintf(port, false, "  %s\n", "I - Get firware build Information");
+  XBeePrintf(port, false, "  %s\n", "N - Get XBee RSSI signal strength value (%)");
   XBeePrintf(port, false, "  %s\n", "R - Get snow depth sensor Range (mm)");
   XBeePrintf(port, false, "  %s\n", "Sxxxx - Set manual calibration distance xxxx (mm)");
   XBeePrintf(port, false, "  %s\n", "T - Get battery charger sTatus:");
@@ -576,6 +600,7 @@ void setup()
   pinMode(MAXBOTIXPOWERPIN, OUTPUT);
   pinMode(VOLTAGEPOWERPIN, OUTPUT);
   pinMode(XBEERESETPIN, OUTPUT);
+  pinMode(XBEERSSIPIN, INPUT);
   pinMode(LED_BUILTIN, OUTPUT);
   
   digitalWrite(MAXBOTIXPOWERPIN, LOW);
@@ -618,7 +643,7 @@ void processCommand(void)
   
   if(Uart2.available())
   {
-    commandByte = Uart2.read();
+    commandByte = Uart2.read();   
     switch(commandByte)
     {
       case CMD_GET_ABOUT: // about
@@ -685,10 +710,19 @@ void processCommand(void)
         XBeePrintf(Uart2, true, outputFormat, CMD_GET_CALIBRATION, datum);
         break;
       }
+      
       case CMD_GET_BUILDINFO: // get firmware build info and send out serial
       {
         printBuildInfo(Uart2);
        break; 
+      }
+      
+      case CMD_GET_RSSI: // read XBee RSSI value stored from last serial read
+      {
+        int r = 0;      
+        r = ((int)((getRssi(XBEERSSIPIN) * 100) + 0.5)) * 100;
+        XBeePrintf(Uart2, true, outputFormat, CMD_GET_RSSI, r);
+        break; 
       }
       
       case CMD_GET_RANGE: // read sensor range and send out serial
@@ -753,7 +787,7 @@ void processCommand(void)
         v = getVolts();
         XBeePrintf(Uart2, false, "%d\n", v);
 #endif   
-        volts = (int)((getVolts() * 100.0) + 0.5);;
+        volts = (int)((getVolts() * 100.0) + 0.5);
         XBeePrintf(Uart2, true, outputFormat, CMD_GET_BATT_VOLTS, volts);
         break;
       }
